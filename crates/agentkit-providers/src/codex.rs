@@ -49,13 +49,14 @@ async fn drive(
     let mut execution_observed = false;
     let mut completed_messages = HashSet::new();
     let mut last_error: Option<String> = None;
+    let mut startup_stage = "initialization";
     emit(events, "status", json!({"status":"running"})).await?;
     write(&mut stdin,json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"agentkit","title":"Agentkit","version":"0.1.0"}}})).await?;
     let startup = tokio::time::sleep(std::time::Duration::from_secs(45));
     tokio::pin!(startup);
     loop {
         tokio::select! {
-            _=&mut startup, if turn.is_none()=>bail!("Codex startup did not complete within 45 seconds"),
+            _=&mut startup, if turn.is_none()=>bail!("Codex startup ({startup_stage}) did not complete within 45 seconds"),
             control=controls.recv()=>match control {
                 Some(ProviderControl::Stop)|None=> {
                     if let (Some(t),Some(u))=(&thread,&turn) { let _=write(&mut stdin,json!({"id":"interrupt","method":"turn/interrupt","params":{"threadId":t,"turnId":u}})).await; }
@@ -77,9 +78,29 @@ async fn drive(
                 if line.trim().is_empty() {continue;}
                 let raw:Value=serde_json::from_str(&line).context("Invalid JSON from Codex app-server")?;
                 if raw["method"].as_str().is_some_and(|m|m=="turn/started"||m.starts_with("item/")){execution_observed=true;}
-                if let Some(error)=raw.get("error") {if matches!(raw["id"].as_u64(),Some(1|2|4)) {if let Some(classified)=crate::pre_turn_error(error,turn_submitted||execution_observed){return Err(classified);}}bail!("Codex protocol error: {error}");}
+                if let Some(error)=raw.get("error") {
+                    if matches!(raw["id"].as_u64(),Some(1|2|4|5)) {if let Some(classified)=crate::pre_turn_error(error,turn_submitted||execution_observed){return Err(classified);}}
+                    if raw["id"] == 5 {
+                        bail!("Codex account/routing check failed: {}", crate::diagnostic(error).unwrap_or_else(||"the native runtime rejected the account check".into()));
+                    }
+                    bail!("Codex protocol error: {error}");
+                }
                 if raw.get("id")==Some(&json!(1)) && raw.get("result").is_some() {
                     write(&mut stdin,json!({"method":"initialized"})).await?;
+                    startup_stage = "account/routing check";
+                    emit(events,"notice",json!({"connection_progress":true,"phase":"connection","state":"checking_account","text":"Checking Codex account and workspace routing…"})).await?;
+                    // Resolve account/workspace routing in this execution process before
+                    // a thread or turn is created. Do not log account/token metadata.
+                    write(&mut stdin,json!({"id":5,"method":"account/read","params":{"refreshToken":false}})).await?;
+                    continue;
+                }
+                if raw.get("id")==Some(&json!(5)) && raw.get("result").is_some() {
+                    let account=&raw["result"];
+                    if account["requiresOpenaiAuth"] == true && account["account"].is_null() {
+                        bail!("Codex is not signed in. Sign in with the native Codex CLI, then retry this request.");
+                    }
+                    startup_stage = "thread setup";
+                    emit(events,"notice",json!({"connection_progress":false,"phase":"connection","state":"ready","text":"Codex account checked. Preparing the request."})).await?;
                     if input.read_only {
                         write(&mut stdin,json!({"id":4,"method":"config/read","params":{"includeLayers":false}})).await?;
                         continue;
@@ -95,7 +116,7 @@ async fn drive(
                     readonly_config["features.apps"]=json!(false);
                     readonly_config["features.multi_agent"]=json!(false);
                 }
-                if (raw.get("id")==Some(&json!(1)) && !input.read_only || raw.get("id")==Some(&json!(4)) && input.read_only) && raw.get("result").is_some() {
+                if (raw.get("id")==Some(&json!(5)) && !input.read_only || raw.get("id")==Some(&json!(4)) && input.read_only) && raw.get("result").is_some() {
                     let (method,mut params)=match &input.resume_session {
                         Some(session)=>("thread/resume",json!({"threadId":session,"cwd":input.workspace})),
                         None=>("thread/start",json!({"cwd":input.workspace})),

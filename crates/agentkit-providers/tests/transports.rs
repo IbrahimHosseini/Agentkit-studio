@@ -86,6 +86,12 @@ async fn explicit_config_and_readonly_cross_provider_boundary() {
     let (result, events) = run(fixture.input("codex")).await;
     result.unwrap();
     let logs = fixture.log();
+    let account = logs.iter().position(|v| v["method"] == "account/read").unwrap();
+    let config = logs.iter().position(|v| v["method"] == "config/read").unwrap();
+    let thread = logs.iter().position(|v| v["method"] == "thread/start").unwrap();
+    let submitted = logs.iter().position(|v| v["method"] == "turn/start").unwrap();
+    assert!(account < config && config < thread && thread < submitted);
+    assert_eq!(logs[account]["params"]["refreshToken"], false);
     let start = logs.iter().find(|v| v["method"] == "thread/start").unwrap();
     assert_eq!(start["params"]["model"], "fixture-model");
     assert_eq!(
@@ -126,6 +132,10 @@ async fn explicit_config_and_readonly_cross_provider_boundary() {
     assert!(events.iter().any(|e| e.kind == "execution_config"
         && e.payload["verification"] == "runtime_reported"
         && e.payload["model"] == "runtime-model"));
+    assert!(events.iter().any(|e| e.kind == "notice" && e.payload["state"] == "checking_account"));
+    assert!(events.iter().any(|e| e.kind == "notice" && e.payload["state"] == "ready"));
+    assert!(!serde_json::to_string(&events).unwrap().contains("private-account-canary"));
+    codex_account_bootstrap(&fixture).await;
     let (result, events) = run(fixture.input("claude")).await;
     result.unwrap();
     let logs = fixture.log();
@@ -168,6 +178,64 @@ async fn explicit_config_and_readonly_cross_provider_boundary() {
         before,
         "unsupported runtime must not start inference"
     );
+}
+async fn codex_account_bootstrap(fixture: &Fixture) {
+    for (scenario, expected, retryable) in [
+        ("account-missing", "not signed in", false),
+        ("account-routing-failed", "account/routing check failed", false),
+        ("account-overloaded", "before task submission", true),
+        ("account-unexpected-turn", "account/routing check failed", false),
+    ] {
+        fs::write(fixture.root.join("scenario"), scenario).unwrap();
+        let before = fixture.log().len();
+        let (result, _) = run(fixture.input("codex")).await;
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains(expected), "{scenario}: {error}");
+        assert_eq!(agentkit_providers::retry_evidence(&error).is_some(), retryable);
+        let calls = fixture.log();
+        let calls = &calls[before..];
+        assert_eq!(calls.iter().filter(|v| v["method"] == "account/read").count(), 1);
+        assert!(!calls.iter().any(|v| matches!(v["method"].as_str(), Some("thread/start" | "thread/resume" | "turn/start"))), "{scenario}: task submitted after failed account check");
+    }
+    // A no-auth custom/API provider remains supported, including resumed writes.
+    fs::write(fixture.root.join("scenario"), "account-no-auth").unwrap();
+    let before = fixture.log().len();
+    let mut input = fixture.input("codex");
+    input.read_only = false;
+    input.resume_session = Some("fixture-resume".into());
+    run(input).await.0.unwrap();
+    let calls = fixture.log();
+    let calls = &calls[before..];
+    let account = calls.iter().position(|v|v["method"] == "account/read").unwrap();
+    let resumed = calls.iter().position(|v|v["method"] == "thread/resume").unwrap();
+    let turn = calls.iter().position(|v|v["method"] == "turn/start").unwrap();
+    assert!(account < resumed && resumed < turn);
+    assert!(!calls.iter().any(|v|v["method"] == "config/read"));
+
+    // Reconnects after submission remain native turn events, not safe task replays.
+    fs::write(fixture.root.join("scenario"), "routing-post-turn").unwrap();
+    let (result, events) = run(fixture.input("codex")).await;
+    result.unwrap();
+    assert!(events.iter().any(|e|e.kind == "error" && e.payload.pointer("/raw/params/willRetry") == Some(&json!(true))));
+    let terminal = events.iter().rev().find(|e|e.kind == "status").unwrap();
+    assert_eq!(terminal.payload["status"], "failed");
+    assert_eq!(terminal.payload["error"], "workspace routing discovery timed out");
+    assert!(terminal.payload.get("retry").is_none());
+
+    // Stop stays responsive while account discovery is pending, before any turn.
+    fs::write(fixture.root.join("scenario"), "account-hold").unwrap();
+    let before = fixture.log().len();
+    let (tx, mut rx) = mpsc::channel(64);
+    let (controls, cr) = mpsc::channel(4);
+    let input = fixture.input("codex");
+    let running = tokio::spawn(async move { agentkit_providers::run(input, "fixture".into(), tx, cr).await });
+    while let Some(event) = rx.recv().await {
+        if event.kind == "notice" && event.payload["state"] == "checking_account" { break; }
+    }
+    controls.send(agentkit_protocol::ProviderControl::Stop).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), running).await.unwrap().unwrap().unwrap();
+    assert!(!fixture.log()[before..].iter().any(|v|matches!(v["method"].as_str(),Some("thread/start" | "turn/start"))));
+    fs::remove_file(fixture.root.join("scenario")).unwrap();
 }
 async fn final_messages_and_failures(fixture: &Fixture) {
     for provider in ["codex", "claude"] {
@@ -312,17 +380,34 @@ scenario_path=Path(__file__).with_name('scenario')
 scenario=scenario_path.read_text() if scenario_path.exists() else ''
 answer='NONCE-123 — نیم‌فاصله English'
 if 'app-server' in sys.argv:
+    account_checked=False
     for line in sys.stdin:
         v=json.loads(line);record(v);method=v.get('method')
         if method=='initialize': emit({'id':v['id'],'result':{}})
+        elif method=='account/read':
+            if scenario=='account-hold': continue
+            if scenario=='account-routing-failed': emit({'id':v['id'],'error':{'code':-32603,'message':'workspace routing discovery timed out'}})
+            elif scenario in ('account-overloaded','account-unexpected-turn'):
+                if scenario=='account-unexpected-turn': emit({'method':'turn/started','params':{'turn':{'id':'unexpected'}}})
+                emit({'id':v['id'],'error':{'code':-32001,'message':'Server overloaded; retry later.'}})
+            else:
+                account_checked=True
+                emit({'id':v['id'],'result':{'account':None if scenario in ('account-missing','account-no-auth') else {'type':'chatgpt','email':'private-account-canary'},'requiresOpenaiAuth':scenario!='account-no-auth','workspaceRouting':{'backendOrigin':'private-account-canary'}}})
         elif method=='config/read': emit({'id':v['id'],'result':{'config':{'mcp_servers':{name:{'url':'http://127.0.0.1:1/never','enabled':True} for name in ['unsafe.remote','gitlab-780','quoted"name']}}}})
-        elif method=='thread/start':
+        elif method in ('thread/start','thread/resume'):
+            if not account_checked:
+                emit({'id':v['id'],'error':{'code':-32603,'message':'account routing was not initialized'}})
+                continue
             config=v['params'].get('config',{})
             if any(k.startswith('mcp_servers.') for k in config):
                 emit({'id':v['id'],'error':{'code':-32600,'message':'invalid transport from quoted dotted MCP override'}})
             else: emit({'id':v['id'],'result':{'thread':{'id':'fixture'},'model':'runtime-model','reasoningEffort':'high'}})
         elif method=='turn/start':
             emit({'id':v['id'],'result':{'turn':{'id':'turn'}}})
+            if scenario=='routing-post-turn':
+                emit({'method':'error','params':{'error':{'message':'Reconnecting... 2/5'},'willRetry':True}})
+                emit({'method':'turn/completed','params':{'turn':{'status':'failed','error':{'message':'workspace routing discovery timed out'}}}})
+                continue
             if scenario:
                 if scenario.startswith('failed'):
                     turn={'status':'failed'}

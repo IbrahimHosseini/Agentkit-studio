@@ -33,6 +33,8 @@ def codex():
         method = message.get('method')
         if method == 'initialize':
             emit({'id': message['id'], 'result': {'userAgent': 'offline-fixture'}})
+        elif method == 'account/read':
+            emit({'id': message['id'], 'result': {'account': {'type': 'chatgpt'}, 'requiresOpenaiAuth': True}})
         elif method in ('thread/start', 'thread/resume'):
             emit({'id': message['id'], 'result': {'thread': {'id': 'thread-fixture'}}})
         elif method == 'turn/start':

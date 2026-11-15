@@ -1001,11 +1001,36 @@ impl Engine {
     }
 }
 
+fn clear_connection_notice(task: &mut Value) -> bool {
+    let Some(notice) = task.as_object_mut().and_then(|o| o.remove("connection_notice")) else {
+        return false;
+    };
+    // Do not overwrite a newer scheduler policy notice with stale provider progress.
+    if task["retry_notice"] == notice["text"] {
+        task["retry_notice"] = notice["previous"].clone();
+    }
+    true
+}
+fn connection_notice(task: &mut Value, run_id: &str, text: &str) {
+    let previous = if task["connection_notice"]["run_id"] == run_id && task["retry_notice"] == task["connection_notice"]["text"] {
+        task["connection_notice"]["previous"].clone()
+    } else {
+        task["retry_notice"].clone()
+    };
+    let text = bounded(text, 2000);
+    task["connection_notice"] = json!({"run_id":run_id,"text":text,"previous":previous});
+    task["retry_notice"] = json!(text);
+}
 fn refresh_task(store: &Store, task: &mut Value) -> Result<()> {
+    if !task["connection_notice"].is_null() && task["connection_notice"]["run_id"] != task["run_id"] {
+        clear_connection_notice(task);
+        store.put("task", required(task, "conversation_id")?, task)?;
+    }
     let Some(rid) = task["run_id"].as_str().map(str::to_owned) else {
         return Ok(());
     };
     if task["replay_complete"] == true && store::terminal(task["status"].as_str().unwrap_or("")) {
+        if clear_connection_notice(task) { store.put("task", required(task, "conversation_id")?, task)?; }
         return Ok(());
     }
     let run = store.get(&rid)?;
@@ -1030,6 +1055,30 @@ fn refresh_task(store: &Store, task: &mut Value) -> Result<()> {
         .collect();
     for event in &events {
         task["event_cursor"] = json!(event.seq);
+        if event.kind == "notice" && event.payload["phase"] == "connection" {
+            match event.payload["state"].as_str() {
+                Some("checking_account") => {
+                    if let Some(text) = event.payload["text"].as_str() { connection_notice(task, &rid, text); }
+                }
+                Some("ready") => { clear_connection_notice(task); }
+                _ => {}
+            }
+        }
+        if event.kind == "error" && event.payload.pointer("/raw/params/willRetry") == Some(&json!(true)) {
+            if let Some(text) = event.payload["text"].as_str().or_else(||event.payload["error"].as_str()) {
+                let provider = match task["provider"].as_str() { Some("codex") => "Codex", Some("claude") => "Claude", _ => "The provider" };
+                connection_notice(task, &rid, &format!("{provider} is reconnecting to the model service. {text} You can stop this request while it waits."));
+            }
+        }
+        let productive_text = matches!(event.kind.as_str(), "text" | "message" | "output")
+            && event.payload["text"].as_str().is_some_and(|text| !text.is_empty());
+        let productive_item = event.kind == "activity"
+            && matches!(event.payload["method"].as_str(), Some("item/started" | "item/completed"))
+            && matches!(event.payload.pointer("/raw/params/item/type").and_then(Value::as_str), Some("agentMessage" | "reasoning" | "commandExecution" | "fileChange" | "mcpToolCall" | "collabToolCall" | "webSearch"));
+        let productive_reasoning = event.kind == "activity"
+            && matches!(event.payload["method"].as_str(), Some("item/reasoning/summaryTextDelta" | "item/reasoning/textDelta"))
+            && event.payload.pointer("/raw/params/delta").and_then(Value::as_str).is_some_and(|text| !text.is_empty());
+        if productive_text || productive_item || productive_reasoning { clear_connection_notice(task); }
         if event.kind == "text" {
             if let Some(t) = event.payload["text"].as_str() {
                 result.push_str(t);
@@ -1068,6 +1117,9 @@ fn refresh_task(store: &Store, task: &mut Value) -> Result<()> {
                 task["actual_effort"] = e.clone();
             }
         }
+    }
+    if store::terminal(&run.status) || task["status"] == "cancelled" {
+        clear_connection_notice(task);
     }
     task["result"] = json!(result);
     task["approvals"] = if store::terminal(&run.status) {
@@ -1434,6 +1486,106 @@ fn apply_plan_transaction(store: &Store, c: &mut Value, raw: &str) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn connection_progress_fixture() -> (std::path::PathBuf, Store, Value) {
+        let root = std::env::temp_dir().join(format!("studio-connection-progress-{}", studio::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut store = Store::open(&root).unwrap();
+        let input: RunInput = serde_json::from_value(json!({"provider":"codex","workspace":root,"prompt":"Offline progress fixture","read_only":true,"attachments":[]})).unwrap();
+        let run = store.create(&input).unwrap();
+        store.import_run(&run.id).unwrap();
+        store.event(&run.id, agentkit_protocol::ProviderEvent::new("status", json!({"status":"running"}))).unwrap();
+        let mut task = store.entity("task", &run.id).unwrap();
+        task["kind"] = json!("planner");
+        task["attempts"] = json!([{"number":1,"run_id":run.id,"status":"running"}]);
+        task["retry_notice"] = json!("Existing scheduler policy notice");
+        (root, store, task)
+    }
+    fn connection_progress_event(store: &mut Store, task: &Value, kind: &str, payload: Value) {
+        store.event(task["run_id"].as_str().unwrap(), agentkit_protocol::ProviderEvent::new(kind, payload)).unwrap();
+    }
+    #[test]
+    fn native_connection_progress_is_visible_in_snapshots_without_another_attempt() {
+        let (root, mut store, mut task) = connection_progress_fixture();
+        let run_id = task["run_id"].clone();
+        connection_progress_event(&mut store, &task, "notice", json!({"text":"Unrelated configuration warning"}));
+        refresh_task(&store, &mut task).unwrap();
+        assert_eq!(task["retry_notice"], "Existing scheduler policy notice");
+        connection_progress_event(&mut store, &task, "notice", json!({"phase":"connection","state":"checking_account","text":"Checking Codex account and workspace routing..."}));
+        refresh_task(&store, &mut task).unwrap();
+        let snapshot = store.snapshot(task["conversation_id"].as_str().unwrap()).unwrap();
+        assert_eq!(snapshot["tasks"][0]["retry_notice"], "Checking Codex account and workspace routing...");
+        connection_progress_event(&mut store, &task, "notice", json!({"phase":"connection","state":"ready"}));
+        refresh_task(&store, &mut task).unwrap();
+        assert_eq!(task["retry_notice"], "Existing scheduler policy notice");
+        task["kind"] = json!("direct");
+        for count in [2, 3] {
+            connection_progress_event(&mut store, &task, "error", json!({"text":format!("Reconnecting... {count}/5"),"raw":{"params":{"willRetry":true}}}));
+            refresh_task(&store, &mut task).unwrap();
+            let snapshot = store.snapshot(task["conversation_id"].as_str().unwrap()).unwrap();
+            assert!(snapshot["tasks"][0]["retry_notice"].as_str().unwrap().contains(&format!("{count}/5")));
+            assert_eq!(task["status"], "running");
+            assert_eq!(task["run_id"], run_id);
+            assert_eq!(task["attempts"].as_array().unwrap().len(), 1);
+            assert_eq!(store.list(10).unwrap().len(), 1);
+            assert!(task["error"].is_null());
+        }
+        connection_progress_event(&mut store, &task, "activity", json!({"method":"item/started","raw":{"params":{"item":{"type":"userMessage"}}}}));
+        refresh_task(&store, &mut task).unwrap();
+        assert!(task["retry_notice"].as_str().unwrap().contains("3/5"));
+        connection_progress_event(&mut store, &task, "text", json!({"text":"Recovered model response"}));
+        refresh_task(&store, &mut task).unwrap();
+        assert_eq!(task["retry_notice"], "Existing scheduler policy notice");
+        assert_eq!(task["result"], "Recovered model response");
+        assert!(task.get("connection_notice").is_none());
+        connection_progress_event(&mut store, &task, "error", json!({"text":"Reconnecting... 4/5","raw":{"params":{"willRetry":true}}}));
+        refresh_task(&store, &mut task).unwrap();
+        connection_progress_event(&mut store, &task, "activity", json!({"method":"item/reasoning/summaryTextDelta","raw":{"params":{"delta":"Model reasoning resumed"}}}));
+        refresh_task(&store, &mut task).unwrap();
+        assert_eq!(task["retry_notice"], "Existing scheduler policy notice");
+        assert_eq!(task["result"], "Recovered model response");
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn native_connection_progress_clears_on_tool_recovery_and_changed_attempt() {
+        let (root, mut store, mut task) = connection_progress_fixture();
+        connection_progress_event(&mut store, &task, "error", json!({"text":"Reconnecting... 2/5","raw":{"params":{"willRetry":true}}}));
+        refresh_task(&store, &mut task).unwrap();
+        task["retry_notice"] = json!("New scheduler policy notice");
+        connection_progress_event(&mut store, &task, "error", json!({"text":"Reconnecting... 3/5","raw":{"params":{"willRetry":true}}}));
+        refresh_task(&store, &mut task).unwrap();
+        connection_progress_event(&mut store, &task, "activity", json!({"method":"item/started","raw":{"params":{"item":{"type":"commandExecution"}}}}));
+        refresh_task(&store, &mut task).unwrap();
+        assert_eq!(task["retry_notice"], "New scheduler policy notice");
+        assert!(task.get("connection_notice").is_none());
+        connection_progress_event(&mut store, &task, "error", json!({"text":"Reconnecting... 4/5","raw":{"params":{"willRetry":true}}}));
+        refresh_task(&store, &mut task).unwrap();
+        task["run_id"] = Value::Null;
+        task["status"] = json!("queued");
+        refresh_task(&store, &mut task).unwrap();
+        assert_eq!(task["retry_notice"], "New scheduler policy notice");
+        assert!(task.get("connection_notice").is_none());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn native_connection_progress_clears_on_terminal_states_without_losing_error() {
+        for status in ["completed", "failed", "cancelled", "interrupted"] {
+            let (root, mut store, mut task) = connection_progress_fixture();
+            connection_progress_event(&mut store, &task, "error", json!({"text":"Reconnecting... 5/5","raw":{"params":{"willRetry":true}}}));
+            refresh_task(&store, &mut task).unwrap();
+            connection_progress_event(&mut store, &task, "status", json!({"status":status,"error":"Original native terminal diagnostic"}));
+            refresh_task(&store, &mut task).unwrap();
+            refresh_task(&store, &mut task).unwrap();
+            assert_eq!(task["status"], status);
+            assert_eq!(task["error"], "Original native terminal diagnostic");
+            assert_eq!(task["retry_notice"], "Existing scheduler policy notice");
+            assert!(task.get("connection_notice").is_none());
+            assert_eq!(task["attempts"].as_array().unwrap().len(), 1);
+            drop(store);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
     #[tokio::test]
     async fn admitted_managed_run_waiting_for_provider_is_never_readmitted() {
         use std::sync::{atomic::AtomicBool, Mutex};
@@ -1719,6 +1871,7 @@ fn retry_failed_task(store: &Store, task: &mut Value) -> Result<()> {
         format!("{}: runtime rejected startup before task submission. Retrying after {} ms (attempt {}/{}).",task["title"].as_str().unwrap_or("Task"),delay,attempts.len()+1,MAX_ATTEMPTS)
     };
     let transaction = store.db.unchecked_transaction()?;
+    clear_connection_notice(task);
     task["retry_notice"] = json!(notice);
     task["retry_at"] = json!(millis() + delay);
     task["status"] = json!("queued");
