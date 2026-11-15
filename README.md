@@ -23,7 +23,7 @@ Studio settings do not rewrite installed agent definitions. Installed or adverti
 
 These instructions build and install from source. Build on the operating system you want to run. Prebuilt installers are not included in the source checkout.
 
-**Verification status:** native builds and UI checks have been performed on macOS arm64. Windows and Linux build paths are prepared, but native builds and execution remain unverified. Distribution signing and notarization are not configured. See [verification details](docs/phase2/VERIFICATION.md).
+**Verification status:** native builds and interactive UI checks have been performed on macOS arm64. Ubuntu 24.04 arm64 passed the automated suite, native release builds, Debian package installation and native WebKitGTK startup under Xvfb in Docker. Interactive Ubuntu desktop use, Ubuntu x86_64, other Linux distributions and Windows remain unverified. Distribution signing and notarization are not configured. See [verification details](docs/phase2/VERIFICATION.md).
 
 ### Common prerequisites
 
@@ -64,6 +64,8 @@ Install these before following your platform’s steps:
 
 This example targets Debian/Ubuntu systems with WebKitGTK 4.1 development packages. For other distributions, use the [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux).
 
+The source-build instructions below were verified on **Ubuntu 24.04 arm64** in Docker. The generated Debian package installed successfully; both the installed desktop app and the AppImage loaded the native frontend and started their bundled engine under a virtual display. This is headless startup verification, not an interactive desktop acceptance test.
+
 1. Install native dependencies in addition to the common prerequisites:
 
    ```sh
@@ -88,7 +90,7 @@ This example targets Debian/Ubuntu systems with WebKitGTK 4.1 development packag
    sudo apt install ./target/release/bundle/deb/*.deb
    ```
 
-   Launch Agentkit Studio from your application menu. If an AppImage is generated instead, make that file executable and launch it. Package formats depend on the build host and Tauri tooling. See [Tauri’s Debian packaging notes](https://v2.tauri.app/distribute/debian/) for distribution compatibility.
+   Launch Agentkit Studio from your application menu. If an AppImage is generated instead, make that file executable and launch it. In environments without FUSE, the tested alternative is `APPIMAGE_EXTRACT_AND_RUN=1 "./target/release/bundle/appimage/Agentkit Studio_0.1.0_aarch64.AppImage"` (adjust the filename for your version and architecture). FUSE-mounted execution has not been verified. Package formats depend on the build host and Tauri tooling. See [Tauri’s Debian packaging notes](https://v2.tauri.app/distribute/debian/) for distribution compatibility.
 
 ### Windows
 
@@ -182,6 +184,8 @@ python3 -I scripts/verify-isolated.py
 On Windows, use `py -3 -I scripts/verify-isolated.py`. The script runs Rust tests, Svelte checking, frontend helper tests, frontend and CLI builds, and phase-one and phase-two Python suites. It isolates application homes and engine state and uses fake provider protocols. Dependencies must already be in the local Cargo cache because Cargo commands run offline. Unix-socket acceptance tests are skipped on Windows; a passing suite there would not establish native Windows acceptance.
 
 Native GUI checks, actual account/model execution and each operating system require separate verification. The model-replacement update passed 117 automated tests and native macOS arm64 UI checks using isolated offline fixtures; no real model requests were made for that update.
+
+The Ubuntu 24.04 arm64 follow-up also passed all 117 tests, the documented release build and Debian installation. Native Debian/AppImage startup was checked under Xvfb with isolated homes and fake providers. No real provider inference or interactive Ubuntu desktop check was performed.
 
 ## Project structure
 

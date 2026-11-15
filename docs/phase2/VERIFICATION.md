@@ -1,5 +1,22 @@
 # Verification — 2026-11-15
 
+## Ubuntu 24.04 arm64 compatibility — 2026-11-15
+
+Verified source commit `6faca1dabdc478e527a8b17f48949f7789a40db0` in a disposable **Ubuntu 24.04.5 LTS arm64** Docker container on the macOS arm64 host. The Linux kernel was Docker Desktop's `7.0.14-linuxkit`, not an Ubuntu desktop kernel. Only project source was copied into the container; no host homes, provider credentials or configuration were mounted. Rust/backend tests and release builds used the unprivileged `ubuntu` user with isolated application homes; frontend checks ran in the disposable container's empty root profile. Existing containers were not modified, and the test container was removed after collecting evidence.
+
+- **Toolchain:** Rust/Cargo 1.100.0, Node.js 24.20.0, npm 11.19.0, Python 3.12, GTK 3.24.41, WebKitGTK 2.52.6, glibc 2.39. Native dependencies were installed using the README's Debian/Ubuntu list; Xvfb, Xauth, D-Bus and fonts were added for headless startup checks.
+- **Automated checks:** 29 Rust tests, 19 frontend helper tests, 10 phase-one and 59 phase-two Python tests: **117 passed**. Svelte checking reported zero errors and the existing `MessageBody.svelte` accessibility warning. The frontend production build and CLI build passed. Rust checks ran offline after fetching locked Linux dependencies. `Cargo.lock` and `apps/desktop/package-lock.json` remained byte-identical.
+- **Release packaging:** the documented `bash scripts/desktop-build.sh` completed without modifications and produced arm64 `.deb`, aarch64 `.rpm` and aarch64 AppImage packages. The Debian package installed successfully with `dpkg -i`; its declared GTK/WebKit runtime dependencies were present. No missing shared libraries were reported for the installed desktop executable. RPM creation passed, but RPM installation was not tested on Ubuntu.
+- **Installed Debian app:** native WebKitGTK under Xvfb mounted the frontend before showing the window and connected to the local daemon. `AGENTKIT_ENGINE_BIN` was unset, exercising the installed app's bundled-engine lookup. Offline fixture definitions were returned by that daemon.
+- **AppImage:** startup also passed under Xvfb using `APPIMAGE_EXTRACT_AND_RUN=1`, because the container did not expose FUSE. With `AGENTKIT_ENGINE_BIN` unset, `/proc` confirmed the running daemon came from the AppImage's extracted `usr/lib/Agentkit Studio/binaries/agentkit`. FUSE-mounted execution remains unverified. WebKit sandbox disabling was **not** enabled for either successful startup check.
+- **Harness correction:** the first startup attempt failed at GTK display authorization because the fixture environment whitelist omitted Xvfb's `XAUTHORITY`. Preserving that variable fixed the test harness. The failed attempt is retained separately in the evidence; it was not an application defect. Xvfb also reported nonfatal accessibility-bus and graphics-acceleration warnings.
+
+No application compatibility defects were found in these tested paths, so no engine, UI or dependency changes were required. README verification status now reflects the Ubuntu evidence. No real Codex/Claude account or model request was used.
+
+Evidence and generated packages are under ignored `target/ubuntu24.04-arm64/`: `verification-summary.json`, `sha256.json`, the standalone Linux CLI, three release packages and `evidence/` containing build/test logs, native startup reports and the temporary harnesses.
+
+**Limits:** this verifies Ubuntu arm64 userland, native compilation, package installation, automated engine/provider-fixture behavior and native startup in a virtual display. Interactive desktop behavior, file dialogs, clipboard, hardware acceleration, Ubuntu x86_64, other Ubuntu versions, other Linux distributions, Windows and real provider execution on Ubuntu remain unverified. The macOS results below are separate historical evidence.
+
 ## Current update: MCP names, optional projects, connections and dropdowns
 
 Implemented by three approved workers without a supervisor. Root integration review found and corrected default model/effort changes conflicting with nonempty allowed sets; four frontend helper tests cover option/default behavior, selection limits and preserving unsaved settings during connection toggles. No package changes were needed: the approved TOML parser addition was abandoned once the actual MCP cause was identified.
