@@ -1,0 +1,33 @@
+[
+  {
+    "provider": "codex",
+    "home": "isolated scratch, no credentials copied",
+    "verification": "native installed CLI smoke, not authenticated model validation",
+    "status": "failed",
+    "event_kinds": [
+      "activity",
+      "error",
+      "session",
+      "status"
+    ],
+    "authenticated_model_execution": false,
+    "protocol_session_created": true,
+    "failure_summary": "401 Unauthorized: no credentials in the isolated Codex home"
+  },
+  {
+    "provider": "claude",
+    "home": "isolated scratch, no credentials copied",
+    "verification": "native installed CLI smoke, not authenticated model validation",
+    "status": "failed",
+    "event_kinds": [
+      "activity",
+      "message",
+      "notice",
+      "session",
+      "status"
+    ],
+    "authenticated_model_execution": false,
+    "protocol_session_created": true,
+    "failure_summary": "Not logged in: empty isolated Claude configuration"
+  }
+]

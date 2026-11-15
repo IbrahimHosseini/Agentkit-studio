@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"/>
+    <title>Agentkit Studio</title>
+  </head>
+  <body>
+    <div id="startup-status" role="status" style="font:14px system-ui,sans-serif;padding:40px;line-height:1.7">
+      <strong id="startup-title">Starting Agentkit Studio…</strong>
+      <p id="startup-detail">Loading your workspace.</p>
+      <button id="startup-reload" hidden>Reload app</button>
+    </div>
+    <div id="app"></div>
+    <script>
+      (() => {
+        function showFailure(detail) {
+          const status = document.getElementById('startup-status');
+          if (!status) return;
+          status.setAttribute('role', 'alert');
+          document.getElementById('startup-title').textContent = 'Agentkit Studio could not start';
+          document.getElementById('startup-detail').textContent = String(detail || 'The interface failed to load. Reload the app or rebuild the desktop bundle.').slice(0, 1000);
+          document.getElementById('startup-reload').hidden = false;
+        }
+        document.getElementById('startup-reload').addEventListener('click', () => location.reload());
+        window.addEventListener('error', event => showFailure(event.message), true);
+        window.addEventListener('unhandledrejection', event => showFailure(event.reason instanceof Error ? event.reason.message : event.reason));
+        window.setTimeout(() => showFailure('The interface did not finish loading. Reload the app; if this continues, rebuild or reinstall the desktop bundle.'), 12000);
+      })();
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

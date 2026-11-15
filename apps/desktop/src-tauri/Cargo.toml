@@ -1,0 +1,15 @@
+[package]
+name = "agentkit-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde.workspace = true
+serde_json.workspace = true
+agentkit-core = { path = "../../../crates/agentkit-core" }

@@ -1,0 +1,556 @@
+{
+  "build": "release, English chrome, after review-round1 fixes",
+  "platform": "macOS arm64",
+  "activity": "explicit mock provider, not an authenticated model",
+  "gui_pid": 88208,
+  "engine_pid": 88282,
+  "webkit_helper_roots": [
+    88250,
+    88251,
+    88253
+  ],
+  "attribution": "WebKit PIDs newly observed across isolated app launch; teardown checked below. Other apps may affect attribution.",
+  "memory_semantics": "ps RSS KiB; sums can double count shared pages, not unique physical footprint. CPU is platform ps estimate.",
+  "native_input_verification": false,
+  "measurements": [
+    {
+      "label": "idle_window_no_agent",
+      "samples": [
+        {
+          "ui_rss_kib": 172512,
+          "engine_rss_kib": 13216,
+          "total_rss_kib": 186432,
+          "cpu_percent_ps": 2.8,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 94944,
+              "cpu_percent_ps": 0.1,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 26000,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 42944,
+              "cpu_percent_ps": 0.3,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8624,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 13920,
+              "cpu_percent_ps": 2.4,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 165040,
+          "engine_rss_kib": 13216,
+          "total_rss_kib": 178256,
+          "cpu_percent_ps": 0.8999999999999999,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 94480,
+              "cpu_percent_ps": 0.1,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 22944,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 39312,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8304,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 13216,
+              "cpu_percent_ps": 0.7,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 162528,
+          "engine_rss_kib": 13216,
+          "total_rss_kib": 175744,
+          "cpu_percent_ps": 0.2,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 94048,
+              "cpu_percent_ps": 0.1,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20912,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 39264,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8304,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 13216,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "one_active_mock_run",
+      "samples": [
+        {
+          "ui_rss_kib": 163504,
+          "engine_rss_kib": 9168,
+          "total_rss_kib": 172672,
+          "cpu_percent_ps": 0.8,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 93968,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 21120,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 40096,
+              "cpu_percent_ps": 0.5,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8320,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 9168,
+              "cpu_percent_ps": 0.2,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 163408,
+          "engine_rss_kib": 9168,
+          "total_rss_kib": 172576,
+          "cpu_percent_ps": 0.1,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 93920,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 21120,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 40048,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8320,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 9168,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 163488,
+          "engine_rss_kib": 9168,
+          "total_rss_kib": 172656,
+          "cpu_percent_ps": 0.0,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 93936,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 21104,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 40112,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8336,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 9168,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "long_history_engine_10000_events_UI_selection_unverified",
+      "samples": [
+        {
+          "ui_rss_kib": 165312,
+          "engine_rss_kib": 11888,
+          "total_rss_kib": 177200,
+          "cpu_percent_ps": 8.0,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 94048,
+              "cpu_percent_ps": 0.1,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20832,
+              "cpu_percent_ps": 1.6,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 42352,
+              "cpu_percent_ps": 0.4,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8080,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 11888,
+              "cpu_percent_ps": 5.9,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 162320,
+          "engine_rss_kib": 11888,
+          "total_rss_kib": 174208,
+          "cpu_percent_ps": 0.8,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 91056,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20832,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 42368,
+              "cpu_percent_ps": 0.4,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8064,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 11888,
+              "cpu_percent_ps": 0.3,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 159472,
+          "engine_rss_kib": 11856,
+          "total_rss_kib": 171328,
+          "cpu_percent_ps": 0.1,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 88256,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20832,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 42336,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8048,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 11856,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "after_run_stop_window_open",
+      "samples": [
+        {
+          "ui_rss_kib": 159504,
+          "engine_rss_kib": 11856,
+          "total_rss_kib": 171360,
+          "cpu_percent_ps": 0.1,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 88272,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20832,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 42352,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8048,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 11856,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 159136,
+          "engine_rss_kib": 11840,
+          "total_rss_kib": 170976,
+          "cpu_percent_ps": 0.4,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 88208,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20880,
+              "cpu_percent_ps": 0.3,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 42000,
+              "cpu_percent_ps": 0.1,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8048,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 11840,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        },
+        {
+          "ui_rss_kib": 158432,
+          "engine_rss_kib": 11840,
+          "total_rss_kib": 170272,
+          "cpu_percent_ps": 0.0,
+          "processes": [
+            {
+              "pid": 88208,
+              "ppid": 88185,
+              "rss_kib": 88208,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/MacOS/agentkit-desktop"
+            },
+            {
+              "pid": 88250,
+              "ppid": 1,
+              "rss_kib": 20880,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"
+            },
+            {
+              "pid": 88251,
+              "ppid": 1,
+              "rss_kib": 41296,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+            },
+            {
+              "pid": 88253,
+              "ppid": 1,
+              "rss_kib": 8048,
+              "cpu_percent_ps": 0.0,
+              "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+            },
+            {
+              "pid": 88282,
+              "ppid": 88208,
+              "rss_kib": 11840,
+              "cpu_percent_ps": 0.0,
+              "command": "/private/tmp/agentkit-phase1-toolchain/target/release/bundle/macos/Agentkit Studio.app/Contents/Resources/binaries/agentkit"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "run_status_after_GUI_exit": "running",
+  "observed_helper_PIDs_still_alive_after_app_exit": [],
+  "engine_alive_after_shutdown": false
+}

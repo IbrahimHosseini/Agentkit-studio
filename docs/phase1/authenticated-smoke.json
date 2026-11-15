@@ -1,0 +1,119 @@
+{
+  "date": "2026-11-12",
+  "authorization": "User approved one short authenticated run per provider with existing login state",
+  "source_codex_auth_file_unchanged": true,
+  "original_settings_and_agents_modified": false,
+  "temporary_credentials_and_session_state_removed": true,
+  "runs": [
+    {
+      "provider": "codex",
+      "execution_limit": "one live run",
+      "state": "isolated scratch home",
+      "authentication": "copied existing Codex cache",
+      "route": "OpenAI default account provider",
+      "text_file_and_image_attached": true,
+      "auth_preflight": {
+        "account_present": true,
+        "auth_type": "chatgpt",
+        "requires_openai_auth": true
+      },
+      "status": "completed",
+      "authenticated_model_execution": true,
+      "duration_seconds": 43.0,
+      "event_count": 75,
+      "event_kinds": [
+        "activity",
+        "session",
+        "status",
+        "text"
+      ],
+      "observed_tool_types": [
+        "commandExecution"
+      ],
+      "model_ids_observed": [],
+      "file_nonce_verified": true,
+      "rtl_sample_verified": true,
+      "image_colors_verified": true,
+      "response": "I’ll read the text fixture and inspect the attached image.\n{\"fixture_code\":\"RIVER-76a426afb6de\",\"left_color\":\"red\",\"right_color\":\"blue\",\"rtl_sample\":\"پشتیبانی نیم‌فاصله و English 🙂\"}",
+      "failure_details": [],
+      "workspace_files_unchanged": true,
+      "engine_shutdown_requested": true,
+      "image_left_right_mapping_verified": true,
+      "scope_limits": [
+        "No live subagent, role, approval, stop or resume scenario was exercised in this one short run."
+      ]
+    },
+    {
+      "provider": "claude",
+      "execution_limit": "one live run",
+      "state": "isolated scratch home",
+      "authentication": "existing ANTHROPIC_AUTH_TOKEN environment",
+      "route": "existing configured gateway (127.0.0.1)",
+      "text_file_and_image_attached": true,
+      "selected_model": "sonnet",
+      "status": "failed",
+      "authenticated_model_execution": false,
+      "duration_seconds": 1.24,
+      "event_count": 9,
+      "event_kinds": [
+        "activity",
+        "message",
+        "notice",
+        "session",
+        "status"
+      ],
+      "observed_tool_types": [],
+      "model_ids_observed": [
+        "<synthetic>",
+        "claude-sonnet-5-5"
+      ],
+      "file_nonce_verified": false,
+      "rtl_sample_verified": false,
+      "image_colors_verified": false,
+      "response": "There's an issue with the selected model (claude-sonnet-5-5). It may not exist or you may not have access to it. Run --model to pick a different model.",
+      "failure_details": [
+        "There's an issue with the selected model (claude-sonnet-5-5). It may not exist or you may not have access to it. Run --model to pick a different model."
+      ],
+      "reported_usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "fallback_credit": null,
+        "inference_geo": "",
+        "input_tokens": 0,
+        "iterations": [],
+        "output_tokens": 0,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "server_tool_use": {
+          "web_fetch_requests": 0,
+          "web_search_requests": 0
+        },
+        "service_tier": "standard",
+        "speed": "standard"
+      },
+      "workspace_files_unchanged": true,
+      "engine_shutdown_requested": true,
+      "model_list_metadata_probe": {
+        "endpoint": "configured gateway /v1/models",
+        "http_status": 404,
+        "inference_request": false
+      },
+      "scope_limits": [
+        "Authentication validity and image/file processing could not be established because the configured model was unavailable or inaccessible.",
+        "No further inference attempt was made after the separately approved corrected attempt."
+      ]
+    }
+  ],
+  "additional_authorization": "User approved exactly one corrected Claude attempt with sonnet after the isolated default Opus was rejected",
+  "initial_claude_attempt": {
+    "status": "failed",
+    "cause": "Scratch test omitted the existing sonnet selection; default claude-opus-5-5 was unavailable on the configured gateway",
+    "reported_input_tokens": 0,
+    "reported_output_tokens": 0
+  }
+}

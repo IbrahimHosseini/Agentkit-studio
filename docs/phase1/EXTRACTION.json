@@ -1,0 +1,41 @@
+{
+  "base_sha": "59dc1655bc901eda1d3b5d2d9b0f446838705cd0",
+  "moved_entries": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "apps",
+    "crates",
+    "docs",
+    "target",
+    ".gstack",
+    "scripts/desktop-dev.sh",
+    "scripts/desktop-build.sh",
+    "scripts/desktop-build.ps1",
+    "tests/phase1"
+  ],
+  "file_and_symlink_count": 1685,
+  "all_moved_bytes_verified_before_adaptation": true,
+  "source_tracked_files_restored": [
+    ".gitignore",
+    "README.md",
+    "lib/agentkit.py",
+    "scripts/validate.sh",
+    "tests/run.sh",
+    "tests/test_native_cli.py"
+  ],
+  "adaptations": [
+    "Standalone README, license copy and project guidance",
+    "Removed obsolete original Python-launcher integration test",
+    "Removed operational references to original lifecycle commands"
+  ],
+  "new_dependency_installations": false,
+  "standalone_checks": {
+    "rust_unit_tests_passed": 10,
+    "integration_tests_passed": 10,
+    "svelte_errors": 0,
+    "svelte_warnings": 0,
+    "workspace_manifests_within_studio": 5,
+    "macos_release_bundle_built": true,
+    "bundled_cli_matches_standalone": true
+  }
+}

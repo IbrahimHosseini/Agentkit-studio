@@ -1,0 +1,24 @@
+[package]
+name = "agentkit-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+directories.workspace = true
+fs2.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+agentkit-protocol = { path = "../agentkit-protocol" }
+agentkit-providers = { path = "../agentkit-providers" }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
