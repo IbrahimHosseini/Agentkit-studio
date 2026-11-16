@@ -682,6 +682,7 @@ mod tests {
             instructions: None,
             read_only: false,
             claude_auth_mode: None,
+            permission_mode: Default::default(),
         }
     }
     #[test]

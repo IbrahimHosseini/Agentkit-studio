@@ -3,7 +3,7 @@ use crate::{
     process::{self, Process},
     prompt_with_files,
 };
-use agentkit_protocol::{ProviderControl, ProviderEvent, RunInput};
+use agentkit_protocol::{PermissionMode, ProviderControl, ProviderEvent, RunInput};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -19,12 +19,58 @@ pub async fn run(
     mut controls: Receiver<ProviderControl>,
 ) -> Result<()> {
     let executable = crate::codex_executable();
+    if !input.read_only && input.permission_mode == PermissionMode::Auto {
+        emit(&events,"notice",json!({"text":"Checking Codex automatic approval support…"})).await?;
+        verify_auto_review(&executable).await?;
+    }
     let mut command = Command::new(executable);
     command.arg("app-server").current_dir(&input.workspace);
     let mut child = Process::spawn(&mut command).map_err(crate::spawn_error)?;
     let result = drive(&input, &events, &mut controls, &mut child).await;
     child.finish().await;
     result
+}
+/// Older app servers ignore unknown JSON fields. Check their own generated
+/// schema before requesting automatic review, instead of degrading silently.
+async fn verify_auto_review(executable: &std::ffi::OsStr) -> Result<()> {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+    let scratch = Scratch(std::env::temp_dir().join(format!("studio-codex-policy-{}", uuid::Uuid::new_v4())));
+    std::fs::create_dir_all(scratch.0.join(".codex"))?;
+    let schema = scratch.0.join("schema");
+    let mut command = Command::new(executable);
+    command.args(["app-server", "generate-json-schema", "--out"]).arg(&schema)
+        .env("HOME", &scratch.0).env("USERPROFILE", &scratch.0).env("CODEX_HOME", scratch.0.join(".codex"))
+        .current_dir(&scratch.0).stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
+    let status = tokio::time::timeout(std::time::Duration::from_secs(10), command.status()).await
+        .context("Codex automatic approval capability check timed out; no task was submitted")?
+        .context("Could not verify Codex automatic approval support; no task was submitted")?;
+    let supported = ["ThreadStartParams", "ThreadResumeParams", "TurnStartParams"].iter().all(|name| {
+        let data = std::fs::read(schema.join("v2").join(format!("{name}.json"))).ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+        data.is_some_and(|value| value["properties"]["approvalsReviewer"].is_object()
+            && value["definitions"]["ApprovalsReviewer"]["enum"].as_array()
+                .is_some_and(|values| values.contains(&json!("auto_review"))))
+    });
+    if !status.success() || !supported {
+        bail!("Installed Codex cannot verify Approve for me support. Update Codex or choose Ask for approval; no task was submitted.");
+    }
+    Ok(())
+}
+fn permission_params(input: &RunInput, turn: bool) -> Value {
+    let (policy, reviewer, sandbox, sandbox_policy) = if input.read_only {
+        ("never", "user", "read-only", json!({"type":"readOnly","networkAccess":false}))
+    } else { match input.permission_mode {
+        PermissionMode::Ask => ("untrusted", "user", "workspace-write", json!({"type":"workspaceWrite","writableRoots":[input.workspace],"networkAccess":false})),
+        PermissionMode::Auto => ("on-request", "auto_review", "workspace-write", json!({"type":"workspaceWrite","writableRoots":[input.workspace],"networkAccess":false})),
+        PermissionMode::FullAccess => ("never", "user", "danger-full-access", json!({"type":"dangerFullAccess"})),
+    }};
+    let mut params = json!({"approvalPolicy":policy,"approvalsReviewer":reviewer});
+    if turn { params["sandboxPolicy"] = sandbox_policy; } else { params["sandbox"] = json!(sandbox); }
+    params
 }
 async fn write(stdin: &mut tokio::process::ChildStdin, message: Value) -> Result<()> {
     let mut bytes = serde_json::to_vec(&message)?;
@@ -123,7 +169,8 @@ async fn drive(
                     };
                     if let Some(model)=&input.model { params["model"]=json!(model); }
                     if let Some(instructions)=&input.instructions { params["developerInstructions"]=json!(instructions); params["config"]=json!({"features.multi_agent":false}); }
-                    if input.read_only { params["sandbox"]=json!("read-only"); params["approvalPolicy"]=json!("never"); params["config"]=readonly_config.clone(); }
+                    if input.read_only { params["config"]=readonly_config.clone(); }
+                    params.as_object_mut().unwrap().extend(permission_params(input,false).as_object().unwrap().clone());
                     if let Some(effort)=&input.effort { if params["config"].is_null(){params["config"]=json!({});} params["config"]["model_reasoning_effort"]=json!(effort); }
                     write(&mut stdin,json!({"id":2,"method":method,"params":params})).await?;
                     continue;
@@ -145,8 +192,8 @@ async fn drive(
                     let mut params=json!({"threadId":id,"input":content});
                     if let Some(model)=&input.model { params["model"]=json!(model); }
                     if let Some(effort)=&input.effort { params["effort"]=json!(effort); }
-                    if input.read_only { params["sandboxPolicy"]=json!({"type":"readOnly"}); params["approvalPolicy"]=json!("never"); }
-                    emit(events,"execution_config",json!({"model":input.model,"effort":input.effort,"read_only":input.read_only,"verification":"requested"})).await?;
+                    params.as_object_mut().unwrap().extend(permission_params(input,true).as_object().unwrap().clone());
+                    emit(events,"execution_config",json!({"model":input.model,"effort":input.effort,"read_only":input.read_only,"permission_mode":input.permission_mode,"verification":"requested"})).await?;
                     turn_submitted=true; // Set BEFORE write: even a partial write makes execution ambiguous.
                     write(&mut stdin,json!({"id":3,"method":"turn/start","params":params})).await?;
                     continue;
@@ -157,6 +204,21 @@ async fn drive(
                 }
                 let method=raw["method"].as_str().unwrap_or("");
                 let params=&raw["params"];
+                if matches!(method,"item/autoApprovalReview/started"|"item/autoApprovalReview/completed") {
+                    let state=params["review"]["status"].as_str().unwrap_or("unknown");
+                    let text=match state {
+                        "inProgress"=>"Codex is reviewing an action that needs elevated access.",
+                        "approved"=>"Codex automatic review approved the action.",
+                        "denied"=>"Codex automatic review denied the action. The requested access was not granted.",
+                        "timedOut"=>"Codex automatic review timed out. The requested access was not granted.",
+                        "aborted"=>"Codex automatic review was aborted. The requested access was not granted.",
+                        _=>"Codex reported an automatic approval review update.",
+                    };
+                    emit(events,"notice",json!({"phase":"permission_review","state":state,"text":text})).await?;
+                }
+                if method=="guardianWarning" {
+                    emit(events,"notice",json!({"phase":"permission_review","state":"warning","text":params["message"].as_str().unwrap_or("Codex automatic approval review reported a warning.")})).await?;
+                }
                 if method=="turn/started" {turn=params.pointer("/turn/id").and_then(Value::as_str).map(str::to_owned);}
                 if let Some(id)=raw.get("id").filter(|_|!method.is_empty()) {
                     if matches!(method,"item/commandExecution/requestApproval"|"item/fileChange/requestApproval") {

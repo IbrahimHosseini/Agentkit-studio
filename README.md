@@ -2,7 +2,7 @@
 
 A desktop workspace for chatting with models and coordinating coding agents through your existing Codex and Claude Code installations.
 
-Start a project-free conversation to chat directly with a selected model. Attach a project to let Studio’s internal Superagent propose tasks, select agents and coordinate execution. Plans that modify files wait for your approval.
+Start a project-free conversation to chat directly with a selected model. Attach a project to let Studio’s internal Superagent propose tasks, select agents and coordinate execution. Each chat saves its permission mode; writing plans wait for approval in the default **Ask for approval** mode.
 
 Studio is an independent application built with Tauri 2, Svelte 5, TypeScript and Rust. The desktop app and standalone CLI share one engine; its local daemon owns the SQLite history database. The separate agentkit project is not required.
 
@@ -10,6 +10,7 @@ Studio is an independent application built with Tauri 2, Svelte 5, TypeScript an
 
 - **Direct model conversations:** choose a provider, model and reasoning effort per project-free chat, with persistent selection and history.
 - **Project orchestration:** coordinate installed roles with task dependencies, activity details, results, stop controls and approvals for writing plans.
+- **Per-chat permissions:** choose Ask for approval, Approve for me with native provider review, or Full access from the composer. Project-free chats and read-only tasks retain their read-only restrictions.
 - **Agent settings:** enable roles, set model and effort defaults, and define additional allowed provider/model/effort combinations. Roles with the same name across providers appear as one agent with multiple definition sources.
 - **Automatic model replacement:** disconnecting a provider moves affected agents to an explicitly allowed, same-name or recognized same-tier model on a connected provider. If no replacement exists, Studio retains the saved selection and displays a red agent-card border with guidance. Direct-chat selections remain unchanged.
 - **Existing provider accounts:** connect Codex or Claude Code using native CLI sign-in. Claude supports its existing routing configuration or the official account route.

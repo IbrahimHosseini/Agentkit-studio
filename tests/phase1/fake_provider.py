@@ -77,7 +77,9 @@ def claude():
 
 
 if __name__ == '__main__':
-    if '--heartbeat' in sys.argv:
+    if '--help' in sys.argv:
+        print('--permission-mode default auto bypassPermissions --permission-prompts host')
+    elif '--heartbeat' in sys.argv:
         child_heartbeat()
     else:
         sys.exit(codex() if 'app-server' in sys.argv else claude())

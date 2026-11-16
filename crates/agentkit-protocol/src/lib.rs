@@ -23,6 +23,16 @@ pub enum ClaudeAuthMode {
     Native,
 }
 
+/// User-selected approval boundary. Read-only runs always take precedence.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionMode {
+    #[default]
+    Ask,
+    Auto,
+    FullAccess,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunInput {
     pub provider: String,
@@ -44,6 +54,8 @@ pub struct RunInput {
     pub read_only: bool,
     #[serde(default)]
     pub claude_auth_mode: Option<ClaudeAuthMode>,
+    #[serde(default)]
+    pub permission_mode: PermissionMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

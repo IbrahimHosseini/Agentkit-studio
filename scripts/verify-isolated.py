@@ -27,7 +27,7 @@ def main():
         commands = [
             ['cargo','test','--offline','--locked','--workspace'],
             ['npm','--prefix','apps/desktop','run','check'],
-            ['node','--test','apps/desktop/src/lib/attachments.test.mjs','apps/desktop/src/lib/model-options.test.mjs'],
+            ['node','--test',*[str(path.relative_to(ROOT)) for path in sorted((ROOT/'apps/desktop/src').rglob('*.test.mjs'))]],
             ['npm','--prefix','apps/desktop','run','build'],
             ['cargo','build','--offline','--locked','-p','agentkit-cli'],
             [sys.executable,'-I','-B','-m','unittest','discover','-s','tests/phase1','-v'],

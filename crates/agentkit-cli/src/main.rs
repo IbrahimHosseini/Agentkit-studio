@@ -204,6 +204,7 @@ async fn execute() -> Result<()> {
                 instructions: None,
                 read_only: false,
                 claude_auth_mode: None,
+                permission_mode: Default::default(),
             };
             ("start", serde_json::to_value(input)?)
         }

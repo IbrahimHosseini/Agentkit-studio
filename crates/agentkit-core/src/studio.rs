@@ -107,14 +107,22 @@ impl Store {
                 |r| r.get(0),
             )
             .with_context(|| format!("{kind} not found"))?;
-        Ok(serde_json::from_str(&raw)?)
+        let mut value: Value = serde_json::from_str(&raw)?;
+        if kind == "conversation" && value.get("permission_mode").is_none() {
+            value["permission_mode"] = json!("ask");
+        }
+        Ok(value)
     }
     pub(crate) fn entities(&self, kind: &str, parent: Option<&str>) -> Result<Vec<Value>> {
         let mut q=self.db.prepare("SELECT data FROM studio_entities WHERE kind=?1 AND (?2 IS NULL OR parent=?2) ORDER BY rowid")?;
         let rows = q.query_map(params![kind, parent], |r| r.get::<_, String>(0))?;
         let mut out = vec![];
         for row in rows {
-            out.push(serde_json::from_str(&row?)?);
+            let mut value: Value = serde_json::from_str(&row?)?;
+            if kind == "conversation" && value.get("permission_mode").is_none() {
+                value["permission_mode"] = json!("ask");
+            }
+            out.push(value);
         }
         Ok(out)
     }

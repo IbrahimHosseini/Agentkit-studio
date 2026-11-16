@@ -4,7 +4,7 @@ use crate::{
     prompt_with_files,
 };
 use agentkit_protocol::{
-    ClaudeAuthMode, ProviderControl, ProviderEvent, RunInput, MAX_ATTACHMENT_BYTES,
+    ClaudeAuthMode, PermissionMode, ProviderControl, ProviderEvent, RunInput, MAX_ATTACHMENT_BYTES,
 };
 use anyhow::{bail, Context, Result};
 use base64::Engine;
@@ -70,7 +70,7 @@ pub async fn run(
     }
     let executable = crate::claude_executable();
     let auth_mode = input.claude_auth_mode.unwrap_or_default();
-    if input.read_only || auth_mode == ClaudeAuthMode::Native {
+    {
         let mut probe_command = Command::new(&executable);
         if auth_mode == ClaudeAuthMode::Native {
             native_environment(&mut probe_command);
@@ -88,6 +88,12 @@ pub async fn run(
             if bytes.len()>128*1024 {bail!("Claude help output exceeds limit");}
             let help=String::from_utf8_lossy(&bytes);
             if input.read_only && !["--safe-mode","--tools","--disallowedTools","--permission-mode"].iter().all(|flag|help.contains(flag)){bail!("Installed Claude Code cannot enforce Studio read-only execution; update the native CLI");}
+            if !input.read_only {
+                let required = match input.permission_mode { PermissionMode::Ask => None, PermissionMode::Auto => Some("auto"), PermissionMode::FullAccess => Some("bypassPermissions") };
+                if !help.contains("--permission-mode") || !help.contains("--permission-prompts") || !help.contains("host") || required.is_some_and(|mode| !help.contains(mode)) {
+                    bail!("Installed Claude Code cannot enforce the selected chat permission mode. Update Claude Code or choose Ask for approval; no task was submitted.");
+                }
+            }
             if auth_mode==ClaudeAuthMode::Native && !help.contains("--setting-sources") {bail!("Installed Claude Code cannot isolate native login from configured settings; --setting-sources is required. Update the CLI or explicitly select configured authentication.");}
             if !probe.wait().await?.success(){bail!("Claude capability probe failed");}
             Ok::<_,anyhow::Error>(())
@@ -110,7 +116,7 @@ pub async fn run(
         "--include-partial-messages",
         "--forward-subagent-text",
         "--permission-prompts",
-        "none",
+        if input.read_only { "none" } else { "host" },
     ]);
     if let Some(role) = input
         .role
@@ -142,13 +148,19 @@ pub async fn run(
             "--permission-mode",
             "plan",
         ]);
+    } else {
+        command.args(["--permission-mode", match input.permission_mode {
+            PermissionMode::Ask => "default",
+            PermissionMode::Auto => "auto",
+            PermissionMode::FullAccess => "bypassPermissions",
+        }]);
     }
-    emit(&events,"execution_config",json!({"model":input.model,"effort":input.effort,"read_only":input.read_only,"claude_auth_mode":auth_mode,"verification":"requested"})).await?;
+    emit(&events,"execution_config",json!({"model":input.model,"effort":input.effort,"read_only":input.read_only,"permission_mode":input.permission_mode,"claude_auth_mode":auth_mode,"verification":"requested"})).await?;
     if let Some(session) = &input.resume_session {
         command.arg("--resume").arg(session);
     }
     let mut process = Process::spawn(&mut command).map_err(crate::spawn_error)?;
-    let result = drive(content, &events, &mut controls, &mut process, auth_mode).await;
+    let result = drive(content, &events, &mut controls, &mut process, auth_mode, input.read_only).await;
     process.finish().await;
     result
 }
@@ -158,6 +170,7 @@ async fn drive(
     controls: &mut Receiver<ProviderControl>,
     process: &mut Process,
     auth_mode: ClaudeAuthMode,
+    read_only: bool,
 ) -> Result<()> {
     let mut stdin = process.child.stdin.take().context("Claude stdin missing")?;
     let mut stdout = process::reader(&mut process.child)?;
@@ -165,7 +178,6 @@ async fn drive(
         &json!({"type":"user","message":{"role":"user","content":content},"parent_tool_use_id":null}),
     )?;
     request.push(b'\n');
-    emit(events,"notice",json!({"text":"Claude interactive approval bridging is unavailable in phase1. Tools requiring approval will be denied by the provider."})).await?;
     emit(events, "status", json!({"status":"running"})).await?;
     stdin.write_all(&request).await?;
     stdin.flush().await?;
@@ -174,6 +186,7 @@ async fn drive(
     let mut last_message: Option<String> = None;
     let mut last_error: Option<String> = None;
     let mut spawners: HashMap<String, String> = HashMap::new();
+    let mut pending: HashMap<String, Value> = HashMap::new();
     let startup = tokio::time::sleep(std::time::Duration::from_secs(45));
     tokio::pin!(startup);
     loop {
@@ -187,7 +200,14 @@ async fn drive(
                     emit(events,"status",json!({"status":"cancelled"})).await?;
                     return Ok(());
                 }
-                Some(ProviderControl::Approve{..})=> {emit(events,"notice",json!({"text":"Claude approval control is not supported; no permission was granted."})).await?;}
+                Some(ProviderControl::Approve{request_id,decision})=> {
+                    let request=pending.remove(&request_id).context("Approval request is no longer pending")?;
+                    let response=if decision {json!({"behavior":"allow","updatedInput":request["request"]["input"]})}
+                        else {json!({"behavior":"deny","message":"The user denied this action."})};
+                    permission_response(&mut stdin,&request["request_id"],response).await?;
+                    emit(events,"approval_resolved",json!({"request_id":request_id,"decision":decision})).await?;
+                    if pending.is_empty(){emit(events,"status",json!({"status":"running"})).await?;}
+                }
             },
             next=process::line(&mut stdout)=> {
                 let Some(line)=next? else {
@@ -197,6 +217,28 @@ async fn drive(
                 };
                 if line.trim().is_empty() {continue;}
                 let raw:Value=serde_json::from_str(&line).context("Invalid JSON from Claude CLI")?;
+                if raw["type"]=="control_request" {
+                    let request=&raw["request"];
+                    if request["subtype"]=="can_use_tool" && raw["request_id"].is_string() {
+                        if read_only || request["tool_name"]=="AskUserQuestion" {
+                            permission_response(&mut stdin,&raw["request_id"],json!({"behavior":"deny","message":if read_only {"Read-only execution cannot grant tool approval."} else {"Interactive question answers are not supported by this host."}})).await?;
+                            emit(events,"permission_denied",json!({"text":"Claude requested an action this execution cannot approve."})).await?;
+                        } else {
+                            let request_id=serde_json::to_string(&raw["request_id"])?;
+                            if pending.len()>=128 {bail!("Too many pending Claude permission requests");}
+                            pending.insert(request_id.clone(),raw.clone());
+                            let reason=request["decision_reason"].as_str().map(str::to_owned).unwrap_or_else(||format!("Claude requests permission to use {}.",request["tool_name"].as_str().unwrap_or("a tool")));
+                            let command=request["input"]["command"].as_str().map(str::to_owned).unwrap_or_else(||request["input"].to_string());
+                            emit(events,"approval",json!({"request_id":request_id,"reason":reason,"command":command,"method":"can_use_tool"})).await?;
+                            emit(events,"status",json!({"status":"awaiting_approval"})).await?;
+                        }
+                    } else {
+                        let mut bytes=serde_json::to_vec(&json!({"type":"control_response","response":{"subtype":"error","request_id":raw["request_id"],"error":"Unsupported interactive request"}}))?;
+                        bytes.push(b'\n');stdin.write_all(&bytes).await?;stdin.flush().await?;
+                        emit(events,"notice",json!({"text":"Unsupported Claude interactive request was declined."})).await?;
+                    }
+                    continue;
+                }
                 if let Some(id)=raw["session_id"].as_str() {
                     if session.as_deref()!=Some(id) {
                         session=Some(id.to_owned());
@@ -240,6 +282,12 @@ async fn drive(
             }
         }
     }
+}
+
+async fn permission_response(stdin: &mut tokio::process::ChildStdin, request_id: &Value, response: Value) -> Result<()> {
+    let mut bytes=serde_json::to_vec(&json!({"type":"control_response","response":{"subtype":"success","request_id":request_id,"response":response}}))?;
+    bytes.push(b'\n');stdin.write_all(&bytes).await?;stdin.flush().await?;
+    Ok(())
 }
 
 // parent_tool_use_id identifies a tool call, not an agent. Resolve it only through

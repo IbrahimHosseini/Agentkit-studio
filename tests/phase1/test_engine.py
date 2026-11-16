@@ -248,7 +248,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.wait_status(run['id'])['status'], 'completed')
         handshake = self.cli_json('handshake')
         cap = next(cap for cap in handshake['capabilities'] if cap['provider'] == 'claude')
-        self.assertFalse(cap['approvals'])
+        self.assertTrue(cap['approvals'])
         events = self.all_events(run['id'])
         self.assertTrue(any(event['kind'] == 'permission_denied' for event in events))
         self.assertTrue(any(event['agent_id'] == 'claude-child' and event['parent_agent_id'] == 'claude-session' for event in events))
@@ -256,7 +256,7 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(any(event['parent_agent_id'] in {'spawn-tool', 'unobserved-tool'} for event in events))
         messages = [json.loads(line) for line in self.log.read_text().splitlines()]
         argv = messages[0]['argv']
-        self.assertEqual(argv[argv.index('--permission-prompts') + 1], 'none')
+        self.assertEqual(argv[argv.index('--permission-prompts') + 1], 'host')
         self.assertEqual(argv[argv.index('--agent') + 1], 'backend')
         self.assertFalse(any('skip-permissions' in arg for arg in argv))
         content = messages[1]['message']['content']

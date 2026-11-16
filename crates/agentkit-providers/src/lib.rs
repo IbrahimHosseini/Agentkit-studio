@@ -81,11 +81,11 @@ pub fn capabilities(provider: &str) -> Capabilities {
     let known = matches!(provider, "codex" | "claude" | "mock");
     Capabilities {
         provider: provider.into(), text: known, images: known, files: known,
-        subagents: known, approvals: provider == "codex" || provider == "mock",
+        subagents: known, approvals: known,
         interrupt: known, resume: provider == "codex" || provider == "claude",
         notes: match provider {
             "codex" => vec!["App-server protocol adapter; real account and installed-version behavior require a live smoke test.".into(), "Selected roles are requested through native delegation; actual role availability is reported by Codex.".into()],
-            "claude" => vec!["Structured CLI adapter; protected tools are denied because interactive approval bridging is not implemented.".into(), "Requires CLI flags --permission-prompts none and --forward-subagent-text; account and version compatibility are not yet verified.".into()],
+            "claude" => vec!["Structured CLI adapter with host permission prompts and native per-run permission modes.".into(), "Automatic review availability depends on the installed CLI, account and managed policies; it never falls back to full access.".into()],
             "mock" => vec!["Synthetic local provider. No model or account is contacted. [approval], [hold], [history], [fail] exercise specific states.".into()],
             _ => vec!["Unknown provider.".into()],
         },
@@ -285,8 +285,8 @@ async fn mock(
 mod tests {
     use super::*;
     #[test]
-    fn capabilities_do_not_claim_claude_approvals() {
-        assert!(!capabilities("claude").approvals);
+    fn capabilities_include_claude_host_approvals() {
+        assert!(capabilities("claude").approvals);
         assert!(capabilities("codex").approvals);
         assert!(!capabilities("unknown").text);
     }
@@ -306,6 +306,7 @@ mod tests {
             instructions: None,
             read_only: false,
             claude_auth_mode: None,
+            permission_mode: Default::default(),
         };
         let task = tokio::spawn(run(input, "test".into(), tx, cr));
         while let Some(event) = rx.recv().await {

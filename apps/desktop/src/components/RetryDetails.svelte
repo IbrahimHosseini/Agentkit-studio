@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Task } from "../lib/protocol";
   import { label } from "../lib/protocol";
+  import TaskNotices from './TaskNotices.svelte';
   let { task }: {
       task: Task;
   } = $props();
@@ -9,7 +10,7 @@
       return Number.isNaN(date.valueOf()) ? "the scheduled time" : date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 </script>
-{#if task.retry_notice}<p class="retry-notice" dir="auto">{task.retry_notice}</p>{/if}
+<TaskNotices {task}/>
 {#if task.retry_at&&task.status==='queued'}<p class="retry-scheduled" role="status">Retry scheduled for {when(task.retry_at)}. You can stop this task while it waits.</p>{/if}
 {#if task.retry_exhausted}<p class="inline-error">Automatic retries are exhausted. Review the failure before starting a new request.</p>{/if}
 {#if task.attempts?.length}

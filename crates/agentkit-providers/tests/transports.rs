@@ -1,6 +1,6 @@
 //! Real subprocess boundaries with synthetic protocols, never an installed model CLI.
 #![cfg(unix)]
-use agentkit_protocol::{ClaudeAuthMode, ProviderEvent, RunInput};
+use agentkit_protocol::{ClaudeAuthMode, PermissionMode, ProviderEvent, RunInput};
 use serde_json::{json, Value};
 use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
@@ -75,6 +75,92 @@ async fn run(input: RunInput) -> (anyhow::Result<()>, Vec<ProviderEvent>) {
         events.push(e);
     }
     (result, events)
+}
+async fn run_deciding(input: RunInput, decision: bool) -> (anyhow::Result<()>, Vec<ProviderEvent>) {
+    let (tx, mut rx) = mpsc::channel(64);
+    let (controls, cr) = mpsc::channel(4);
+    let task = tokio::spawn(agentkit_providers::run(input, "fixture".into(), tx, cr));
+    let mut events = Vec::new();
+    while let Some(event) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.unwrap() {
+        if event.kind == "approval" {
+            controls.send(agentkit_protocol::ProviderControl::Approve {
+                request_id: event.payload["request_id"].as_str().unwrap().into(), decision,
+            }).await.unwrap();
+        }
+        events.push(event);
+    }
+    (task.await.unwrap(), events)
+}
+
+async fn permission_mode_scenarios(fixture: &Fixture) {
+    fs::write(fixture.root.join("scenario"), "permission-completed").unwrap();
+    for mode in [PermissionMode::Ask, PermissionMode::Auto, PermissionMode::FullAccess] {
+        for readonly in [false, true] {
+            let before = fixture.log().len();
+            let mut input = fixture.input("codex");
+            input.read_only = readonly;
+            input.permission_mode = mode;
+            input.resume_session = Some("fixture-existing-session".into());
+            let (result, events) = run(input).await;
+            result.unwrap();
+            let calls = fixture.log();
+            let calls = &calls[before..];
+            let start = &calls.iter().find(|v|v["method"]=="thread/resume").unwrap()["params"];
+            let turn = &calls.iter().find(|v|v["method"]=="turn/start").unwrap()["params"];
+            let (sandbox, policy, reviewer, kind) = if readonly { ("read-only", "never", "user", "readOnly") } else {
+                match mode {
+                    PermissionMode::Ask => ("workspace-write", "untrusted", "user", "workspaceWrite"),
+                    PermissionMode::Auto => ("workspace-write", "on-request", "auto_review", "workspaceWrite"),
+                    PermissionMode::FullAccess => ("danger-full-access", "never", "user", "dangerFullAccess"),
+                }
+            };
+            assert_eq!(start["sandbox"], sandbox);
+            for params in [start, turn] {
+                assert_eq!(params["approvalPolicy"], policy);
+                assert_eq!(params["approvalsReviewer"], reviewer);
+            }
+            assert_eq!(turn["sandboxPolicy"]["type"], kind);
+            assert!(events.iter().any(|event| event.kind=="execution_config" && event.payload["permission_mode"]==json!(mode)));
+
+            let before = fixture.log().len();
+            let mut input = fixture.input("claude");input.read_only=readonly;input.permission_mode=mode;
+            run(input).await.0.unwrap();
+            let calls = fixture.log();
+            let args = calls[before..].iter().find_map(|value|value["argv"].as_array()).unwrap();
+            let index = args.iter().position(|arg|arg=="--permission-mode").unwrap();
+            assert_eq!(args[index+1], if readonly { "plan" } else { match mode {PermissionMode::Ask=>"default",PermissionMode::Auto=>"auto",PermissionMode::FullAccess=>"bypassPermissions"} });
+            let index = args.iter().position(|arg|arg=="--permission-prompts").unwrap();
+            assert_eq!(args[index+1], if readonly { "none" } else { "host" });
+        }
+    }
+    fs::write(fixture.root.join("unsupported-auto"), "").unwrap();
+    let before = fixture.log().len();
+    let mut input=fixture.input("codex");input.read_only=false;input.permission_mode=PermissionMode::Auto;
+    assert!(run(input).await.0.unwrap_err().to_string().contains("cannot verify Approve for me"));
+    assert_eq!(fixture.log().len(),before,"unsupported auto must not submit a task");
+    fs::remove_file(fixture.root.join("unsupported-auto")).unwrap();
+    for status in ["approved", "denied", "timedOut", "aborted"] {
+        fs::write(fixture.root.join("scenario"), format!("review-{status}")).unwrap();
+        let mut input=fixture.input("codex");input.read_only=false;input.permission_mode=PermissionMode::Auto;
+        let (result,events)=run(input).await;result.unwrap();
+        assert!(events.iter().any(|event|event.kind=="notice" && event.payload["phase"]=="permission_review" && event.payload["state"]==status));
+        if status!="approved" {assert!(events.iter().any(|event|event.payload["text"].as_str().is_some_and(|text|text.contains("not granted"))));}
+        assert!(!events.iter().any(|event|event.kind=="approval"));
+    }
+
+    fs::write(fixture.root.join("scenario"), "claude-permission").unwrap();
+    for (readonly, decision) in [(false,true),(false,false),(true,true)] {
+        let before=fixture.log().len();
+        let mut input=fixture.input("claude");input.read_only=readonly;
+        let (result,events)=run_deciding(input,decision).await;result.unwrap();
+        let calls=fixture.log();
+        let response=calls[before..].iter().find(|v|v["type"]=="control_response").unwrap();
+        assert_eq!(response["response"]["request_id"],"claude-permission-1");
+        assert_eq!(response["response"]["response"]["behavior"],if !readonly && decision {"allow"} else {"deny"});
+        assert_eq!(events.iter().filter(|event|event.kind=="approval").count(),usize::from(!readonly));
+        if !readonly {assert!(events.iter().any(|event|event.kind=="approval_resolved"));}
+    }
+    fs::remove_file(fixture.root.join("scenario")).unwrap();
 }
 #[tokio::test]
 async fn explicit_config_and_readonly_cross_provider_boundary() {
@@ -169,6 +255,7 @@ async fn explicit_config_and_readonly_cross_provider_boundary() {
             && e.payload["model"] == "claude-runtime-model"));
     final_messages_and_failures(&fixture).await;
     native_auth_scenarios(&mut fixture).await;
+    permission_mode_scenarios(&fixture).await;
     fs::write(fixture.root.join("unsupported"), "").unwrap();
     let before = fixture.log().len();
     let (result, _) = run(fixture.input("claude")).await;
@@ -372,8 +459,15 @@ from pathlib import Path
 def emit(v): print(json.dumps(v),flush=True)
 def record(v):
     with open(os.environ['STUDIO_TRANSPORT_LOG'],'a') as f: f.write(json.dumps(v)+'\n')
+if 'generate-json-schema' in sys.argv:
+    schema=Path(sys.argv[sys.argv.index('--out')+1])/'v2';schema.mkdir(parents=True)
+    for name in ['ThreadStartParams','ThreadResumeParams','TurnStartParams']:
+        value={'properties':{'approvalsReviewer':{}},'definitions':{'ApprovalsReviewer':{'enum':['user','auto_review']}}}
+        if Path(__file__).with_name('unsupported-auto').exists():value={}
+        (schema/(name+'.json')).write_text(json.dumps(value))
+    sys.exit(0)
 if '--help' in sys.argv:
-    print(('--safe-mode --tools --disallowedTools --permission-mode' if not Path(__file__).with_name('unsupported').exists() else '--tools') + (' --setting-sources' if not Path(__file__).with_name('unsupported-native').exists() else ''))
+    print(('--safe-mode --tools --disallowedTools --permission-mode --permission-prompts host auto bypassPermissions default' if not Path(__file__).with_name('unsupported').exists() else '--tools') + (' --setting-sources' if not Path(__file__).with_name('unsupported-native').exists() else ''))
     sys.exit(0)
 record({'argv':sys.argv[1:],'env_effort':os.environ.get('CLAUDE_CODE_EFFORT_LEVEL'),'route_keys':[k for k in os.environ if k.startswith('ANTHROPIC_') or k in ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_FOUNDRY','CLAUDE_CODE_USE_MANTLE','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_SKIP_BEDROCK_AUTH','AWS_BEARER_TOKEN_BEDROCK','CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY']],'oauth_preserved':os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')=='fixture-native-oauth','config_dir_preserved':os.environ.get('CLAUDE_CONFIG_DIR')==str(Path(__file__).parent/'.claude'),'proxy_preserved':os.environ.get('HTTPS_PROXY')=='fixture-routing-value'})
 scenario_path=Path(__file__).with_name('scenario')
@@ -404,6 +498,9 @@ if 'app-server' in sys.argv:
             else: emit({'id':v['id'],'result':{'thread':{'id':'fixture'},'model':'runtime-model','reasoningEffort':'high'}})
         elif method=='turn/start':
             emit({'id':v['id'],'result':{'turn':{'id':'turn'}}})
+            if scenario.startswith('review-'):
+                emit({'method':'item/autoApprovalReview/started','params':{'review':{'status':'inProgress'}}})
+                emit({'method':'item/autoApprovalReview/completed','params':{'review':{'status':scenario.removeprefix('review-')}}})
             if scenario=='routing-post-turn':
                 emit({'method':'error','params':{'error':{'message':'Reconnecting... 2/5'},'willRetry':True}})
                 emit({'method':'turn/completed','params':{'turn':{'status':'failed','error':{'message':'workspace routing discovery timed out'}}}})
@@ -428,6 +525,10 @@ else:
     if scenario.startswith('failed'):
         if scenario=='failed-notification': emit({'type':'error','error':{'message':'fixture model unavailable'}})
         emit({'type':'result','session_id':'fixture','subtype':'error_during_execution','is_error':True,'errors':['fixture model unavailable'] if scenario=='failed' else []})
+    elif scenario=='claude-permission':
+        emit({'type':'control_request','request_id':'claude-permission-1','request':{'subtype':'can_use_tool','tool_name':'Bash','input':{'command':'fixture command'},'decision_reason':'Fixture action needs approval'}})
+        record(json.loads(sys.stdin.readline()))
+        emit({'type':'result','session_id':'fixture','result':'Permission resolved','is_error':False})
     elif scenario:
         if scenario=='stream-and-final': emit({'type':'stream_event','session_id':'fixture','event':{'delta':{'text':'NONCE-123 — '}}})
         emit({'type':'assistant','session_id':'fixture','parent_tool_use_id':None,'message':{'content':[{'type':'text','text':answer}]}})

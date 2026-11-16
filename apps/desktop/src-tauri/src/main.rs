@@ -95,6 +95,34 @@ fn attachment_info(paths: Vec<String>) -> Result<Vec<Value>, String> {
     }
     paths.iter().map(|p| describe(p)).collect()
 }
+fn source_file(path: &str) -> Result<std::path::PathBuf, String> {
+    if !Path::new(path).is_absolute() {
+        return Err("Source references must use an absolute path".into());
+    }
+    let path = fs::canonicalize(path).map_err(|e| e.to_string())?;
+    if !path.is_file() {
+        return Err("Source reference is not a regular file".into());
+    }
+    Ok(path)
+}
+/// Reveal references in the file manager; never execute a model-supplied file.
+#[tauri::command]
+async fn reveal_source_file(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = source_file(&path)?;
+        #[cfg(target_os = "macos")]
+        let status = std::process::Command::new("/usr/bin/open").arg("-R").arg(&path).status();
+        #[cfg(target_os = "windows")]
+        let status = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).status();
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let status = std::process::Command::new("xdg-open").arg(path.parent().ok_or("File has no parent directory")?).status();
+        let status = status.map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("Could not open the file manager".into());
+        }
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
+}
 #[tauri::command]
 fn stage_clipboard_image(
     app: tauri::AppHandle,
@@ -208,6 +236,7 @@ fn main() {
             frontend_ready,
             engine_request,
             attachment_info,
+            reveal_source_file,
             stage_clipboard_image,
             remove_staged_attachment
         ])
@@ -218,6 +247,15 @@ fn main() {
 #[cfg(test)]
 mod startup_tests {
     use super::*;
+    #[test]
+    fn source_references_require_existing_absolute_regular_files() {
+        assert!(source_file("Cargo.toml").is_err());
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(source_file(directory.to_str().unwrap()).is_err());
+        assert!(source_file(directory.join("missing-source.swift").to_str().unwrap()).is_err());
+        let file = directory.join("Cargo.toml");
+        assert_eq!(source_file(file.to_str().unwrap()).unwrap(), fs::canonicalize(file).unwrap());
+    }
     #[test]
     fn ready_cannot_be_replaced_by_timeout_or_duplicate_ready() {
         let state = StartupState::default();

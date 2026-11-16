@@ -4,7 +4,21 @@ Studio keeps projects, conversations, messages and execution tasks in its local 
 
 ## Using the desktop
 
-Start a conversation and send your request, with or without a project. Open the composer’s **+** menu to attach files or choose a project folder or **No project**. You can attach, move or detach an existing chat after its active request or pending plan ends; history stays in that chat. Project-free chats use private per-chat storage and require an attached project before file changes can be proposed. New conversation starts without a project. Inside a project, the composer shows **Superagent** and the internal coordinator proposes a structured task graph or answers directly. Without a project, the composer shows compact model and effort dropdowns. Each message goes directly to the selected connected provider, with no planning, delegation or summarization step. The selection is stored separately for each conversation; changing it affects future messages. Attaching a project hides the manual controls; detaching it restores the saved direct-chat selection. A disconnected saved provider produces an actionable error rather than an automatic model switch. Read-only work can proceed immediately. Plans containing writes wait for approval before their workers start. You can stop a task or the whole request. Provider permission requests remain separate from approval of the overall plan.
+Start a conversation and send your request, with or without a project. Open the composer’s **+** menu to attach files or choose a project folder or **No project**. You can attach, move or detach an existing chat after its active request or pending plan ends; history stays in that chat. Project-free chats use private per-chat storage and require an attached project before file changes can be proposed. New conversation starts without a project. Inside a project, the composer shows **Superagent** and the internal coordinator proposes a structured task graph or answers directly. Without a project, the composer shows compact model and effort dropdowns. Each message goes directly to the selected connected provider, with no planning, delegation or summarization step. The selection is stored separately for each conversation; changing it affects future messages. Attaching a project hides the manual controls; detaching it restores the saved direct-chat selection. A disconnected saved provider produces an actionable error rather than an automatic model switch. Read-only work can proceed immediately. You can stop a task or the whole request.
+
+## Chat permissions
+
+Use the permission button below the message composer to choose a mode for this chat. The choice is saved with the conversation and survives restarting Studio. New and older chats default to **Ask for approval**. Finish or stop an active request before changing the mode.
+
+| Mode | Project execution |
+| --- | --- |
+| **Ask for approval** | Plans that write files wait for your approval. Codex asks about untrusted commands; Claude sends protected tool requests to Studio's Allow once / Deny controls. |
+| **Approve for me** | Studio starts validated project plans without another plan prompt. Codex keeps its workspace sandbox and uses native automatic review for actions needing elevated access. Claude uses its native `auto` permission mode. Requests that still require your decision appear in the chat. |
+| **Full access** | Studio starts validated project plans without another plan prompt. Codex uses its full-access sandbox mode without routine approvals; Claude uses `bypassPermissions`. Access remains subject to the OS and native runtime's managed policies. |
+
+Project-free chats, internal planning, summaries and tasks declared read-only remain read-only in every mode. The permission menu never overrides those restrictions. Modes are passed explicitly to each native execution, including resumed Codex threads, and do not rewrite your CLI configuration or installed agents.
+
+Automatic review requires a compatible native CLI and account. Studio checks Codex's installed protocol schema before starting a writable automatic-review run, and rejects unsupported modes rather than switching to full access. Runtime errors and review denials remain visible. Codex automatic review can use additional model calls; see [Codex approval security](https://learn.chatgpt.com/docs/agent-approvals-security) and [Claude permission modes](https://code.claude.com/docs/en/permissions).
 
 Use the sort icon beside **All conversations** to sort by latest activity, creation date or title and choose the direction. Project/chat removal controls appear on hover or when their buttons receive keyboard focus. Deleting a project removes its Studio entry and detaches its chats; it never deletes the project folder. Deleting a chat requires confirmation. Active requests and pending plans must end before deletion.
 
@@ -42,6 +56,7 @@ agentkit --json rpc studio/settings
 agentkit --json rpc studio/agents --params '{"workspace":"/absolute/project"}'
 agentkit --json rpc studio/conversation/create --params '{"project_id":null}'
 agentkit --json rpc studio/conversation/selection --params '{"conversation_id":"CHAT_ID","selection":{"provider":"codex","model":null,"effort":null}}'
+agentkit --json rpc studio/conversation/permission --params '{"conversation_id":"CHAT_ID","permission_mode":"auto"}'
 agentkit --json rpc studio/conversation/project --params '{"conversation_id":"CHAT_ID","project_id":null}'
 agentkit --json rpc studio/connection/set --params '{"provider":"codex","enabled":false}'
 agentkit --json rpc studio/models --params '{"provider":"codex","workspace":"/absolute/project"}'

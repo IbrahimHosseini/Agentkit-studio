@@ -25,6 +25,7 @@ export interface Project {
     created_at: string;
 }
 export interface Conversation {
+    permission_mode?: PermissionMode;
     chat_selection?: ModelSelection | null;
     id: string;
     project_id: string | null;
@@ -33,6 +34,7 @@ export interface Conversation {
     created_at: string;
     updated_at: string;
 }
+export type PermissionMode = 'ask' | 'auto' | 'full_access';
 export interface Message {
     provider?: string;
     model?: string | null;
@@ -61,6 +63,7 @@ export interface Task {
     retry_at?: number | null;
     retry_exhausted?: boolean;
     retry_notice?: string;
+    permission_notice?: string;
 
     kind?: string;
     actual_model?: string;

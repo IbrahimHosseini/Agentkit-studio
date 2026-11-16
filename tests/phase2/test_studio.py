@@ -102,6 +102,86 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(third['tasks'][-1]['workspace'],str(scratch))
         self.assertEqual(len({t['run_id'] for t in third['tasks']}),3)
 
+    def test_chat_permission_mode_is_validated_scoped_and_persistent(self):
+        first=self.rpc('studio/conversation/create',{'permission_mode':'auto'})
+        other=self.rpc('studio/conversation/create',{})
+        self.assertEqual(first['permission_mode'],'auto')
+        self.assertEqual(other['permission_mode'],'ask')
+        for value in ('unknown',None,True,{},7):
+            self.assertIn('error',self.rpc('studio/conversation/create',{'permission_mode':value},allow_error=True))
+            self.assertIn('error',self.rpc('studio/conversation/permission',{'conversation_id':first['id'],'permission_mode':value},allow_error=True))
+        self.assertIn('error',self.rpc('studio/conversation/permission',{'conversation_id':first['id']},allow_error=True))
+        changed=self.rpc('studio/conversation/permission',{'conversation_id':first['id'],'permission_mode':'full_access'})
+        self.assertEqual(changed['conversation']['permission_mode'],'full_access')
+        self.cleanup();self.daemon=None;self.launch()
+        self.assertEqual(self.get(first['id'])['conversation']['permission_mode'],'full_access')
+        self.assertEqual(self.get(other['id'])['conversation']['permission_mode'],'ask')
+        # Emulate a chat written before permission_mode was introduced.
+        self.cleanup();self.daemon=None
+        with sqlite3.connect(self.data/'history.sqlite3') as db:
+            row=db.execute("SELECT data FROM studio_entities WHERE kind='conversation' AND id=?",(other['id'],)).fetchone()
+            legacy=json.loads(row[0]);legacy.pop('permission_mode')
+            db.execute("UPDATE studio_entities SET data=? WHERE kind='conversation' AND id=?",(json.dumps(legacy),other['id']))
+        self.launch()
+        self.assertEqual(self.get(other['id'])['conversation']['permission_mode'],'ask')
+        self.assertEqual(next(c for c in self.rpc('studio/conversations') if c['id']==other['id'])['permission_mode'],'ask')
+
+    def test_chat_permission_cannot_change_during_execution(self):
+        cid=self.rpc('studio/conversation/create',{})['id']
+        self.send(cid,'HOLD_TASK permission test')
+        self.wait(cid,lambda d:any(t['run_id'] for t in d['tasks']))
+        rejected=self.rpc('studio/conversation/permission',{'conversation_id':cid,'permission_mode':'full_access'},allow_error=True)
+        self.assertIn('error',rejected)
+        self.assertEqual(self.get(cid)['conversation']['permission_mode'],'ask')
+        self.rpc('studio/conversation/stop',{'conversation_id':cid});self.done(cid)
+        deadline=time.monotonic()+10
+        while time.monotonic()<deadline:
+            result=self.rpc('studio/conversation/permission',{'conversation_id':cid,'permission_mode':'auto'},allow_error=True)
+            if 'result' in result:break
+            time.sleep(.05)
+        self.assertEqual(result['result']['conversation']['permission_mode'],'auto')
+
+    def test_full_access_does_not_expand_projectless_chat_permissions(self):
+        cid=self.rpc('studio/conversation/create',{'permission_mode':'full_access'})['id']
+        self.send(cid,'Read the direct conversation fixture');done=self.done(cid)
+        self.assertEqual(done['conversation']['status'],'completed')
+        self.assertTrue(all(t['read_only'] for t in done['tasks']))
+        self.assertTrue(all(t['permission_mode']=='full_access' for t in done['tasks']))
+        calls=[json.loads(line) for line in self.log.read_text().splitlines()]
+        starts=[v['rpc']['params'] for v in calls if v.get('rpc',{}).get('method')=='thread/start']
+        turns=[v['rpc']['params'] for v in calls if v.get('rpc',{}).get('method')=='turn/start']
+        self.assertEqual(len(starts),1);self.assertEqual(len(turns),1)
+        self.assertEqual(starts[0]['sandbox'],'read-only')
+        self.assertEqual(turns[0]['sandboxPolicy']['type'],'readOnly')
+        self.assertTrue(all(p['approvalPolicy']=='never' and p['approvalsReviewer']=='user' for p in starts+turns))
+
+    def test_automatic_project_permissions_apply_without_repeated_plan_prompts(self):
+        project=self.rpc('studio/project/create',{'path':str(self.project)})
+        for mode in ('auto','full_access'):
+            cid=self.rpc('studio/conversation/create',{'project_id':project['id'],'permission_mode':mode})['id']
+            for request in ('WRITE_TASK','CODEX_WRITE_TASK'):
+                before=len(self.log.read_text().splitlines()) if self.log.exists() else 0
+                self.send(cid,request);done=self.done(cid)
+                self.assertEqual(done['conversation']['status'],'completed')
+                self.assertEqual(done['plan']['status'],'approved')
+                current=[t for t in done['tasks'] if t['request_id']==done['conversation']['request_id']]
+                self.assertTrue(all(t['permission_mode']==mode for t in current))
+                calls=[json.loads(line) for line in self.log.read_text().splitlines()[before:]]
+                starts=[v['rpc']['params'] for v in calls if v.get('rpc',{}).get('method')=='thread/start']
+                readonly=[p for p in starts if p.get('sandbox')=='read-only']
+                self.assertTrue(readonly,'planning and summarizing stay read-only')
+                self.assertTrue(all(p['approvalPolicy']=='never' and p['approvalsReviewer']=='user' for p in readonly))
+                if request=='CODEX_WRITE_TASK':
+                    writes=[p for p in starts if p.get('sandbox')!='read-only']
+                    self.assertEqual(len(writes),1)
+                    self.assertEqual(writes[0]['sandbox'],'workspace-write' if mode=='auto' else 'danger-full-access')
+                    self.assertEqual(writes[0]['approvalsReviewer'],'auto_review' if mode=='auto' else 'user')
+                    self.assertEqual(writes[0]['approvalPolicy'],'on-request' if mode=='auto' else 'never')
+                else:
+                    invocations=[v['argv'] for v in calls if '--print' in v.get('argv',[])]
+                    self.assertEqual(len(invocations),1)
+                    self.assertEqual(invocations[0][invocations[0].index('--permission-mode')+1],'auto' if mode=='auto' else 'bypassPermissions')
+
     def test_direct_chat_selection_persists_switches_and_has_no_planner(self):
         first={'provider':'codex','model':'fixture-codex','effort':'medium'}
         c=self.rpc('studio/conversation/create',{'selection':first});cid=c['id']

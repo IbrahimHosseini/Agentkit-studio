@@ -23,6 +23,8 @@ def answer(text):
         write='WRITE_TASK' in text
         tasks=[{'id':'research','agent_id':'codex:researcher','title':'Research','prompt':'Read fixture context','model':None,'effort':None,'read_only':True,'dependencies':[],'files':[],'reason':'Installed default'}]
         tasks.append({'id':'report','agent_id':'claude:writer','title':'Write report' if write else 'Review','prompt':'WRITE_TASK' if write else 'Review research','model':None,'effort':None,'read_only':not write,'dependencies':['research'],'files':['report.txt'] if write else [],'reason':'Installed default'})
+        if 'CODEX_WRITE_TASK' in text:
+            tasks[-1]['agent_id']='codex:researcher'
         if 'INVALID_MODEL' in text:
             tasks[0]['model']='not-an-allowed-model'
         if 'BAD_DEPENDENCY' in text:
@@ -35,12 +37,17 @@ def answer(text):
     return 'Worker fixture result'
 
 def main():
+    if 'generate-json-schema' in sys.argv:
+        schema=Path(sys.argv[sys.argv.index('--out')+1])/'v2';schema.mkdir(parents=True)
+        for name in ('ThreadStartParams','ThreadResumeParams','TurnStartParams'):
+            (schema/(name+'.json')).write_text(json.dumps({'properties':{'approvalsReviewer':{}},'definitions':{'ApprovalsReviewer':{'enum':['user','auto_review']}}}))
+        return
     if '--version' in sys.argv:
         print('codex-cli 0.150.0' if 'codex' in Path(sys.argv[0]).name else '2.1.296 (Claude Code)')
         return
     if '--help' in sys.argv:
         time.sleep(float(os.environ.get('STUDIO_FIXTURE_HELP_DELAY','0')))
-        print('app-server --safe-mode --model --effort --agent --agents --input-format --output-format --permission-mode --permission-prompts --disallowedTools --tools --mcp-config --strict-mcp-config --json-schema --append-system-prompt --forward-subagent-text')
+        print('app-server --safe-mode --model --effort --agent --agents --input-format --output-format --permission-mode --permission-prompts host auto bypassPermissions default --disallowedTools --tools --mcp-config --strict-mcp-config --json-schema --append-system-prompt --forward-subagent-text')
         return
     record({'argv':sys.argv[1:],'pid':os.getpid(),'event':'started'})
     if 'app-server' in sys.argv:

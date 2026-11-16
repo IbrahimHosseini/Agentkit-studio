@@ -4,7 +4,7 @@ use crate::{
     store::{self, Store},
     studio,
 };
-use agentkit_protocol::{ProviderControl, RunInput};
+use agentkit_protocol::{PermissionMode, ProviderControl, RunInput};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::{
@@ -20,6 +20,12 @@ fn save_conversation(store: &Store, c: &mut Value, status: &str) -> Result<()> {
     c["status"] = json!(status);
     c["updated_at"] = json!(store::now());
     store.put("conversation", c["project_id"].as_str().unwrap_or(""), c)
+}
+fn permission_mode(c: &Value) -> Result<PermissionMode> {
+    match c.get("permission_mode") {
+        None => Ok(PermissionMode::Ask),
+        Some(value) => serde_json::from_value(value.clone()).context("Invalid permission mode"),
+    }
 }
 fn conversation_workspace(store: &Store, c: &Value) -> Result<String> {
     if let Some(pid) = c["project_id"].as_str() {
@@ -607,11 +613,13 @@ impl Engine {
             "studio/conversation/create" => {
                 let pid = p.get("project_id").filter(|v| !v.is_null()).map(|v| v.as_str().context("Project ID must be a string or null")).transpose()?;
                 if let Some(pid) = pid { store.entity("project", pid)?; }
+                let mode = permission_mode(p)?;
                 let id = studio::id();
                 let workspace = std::path::Path::new(&self.root).join("chat-workspaces").join(&id);
                 std::fs::create_dir_all(&workspace)?;
                 let workspace = std::fs::canonicalize(workspace)?;
                 let mut value = json!({"id":id,"project_id":pid,"standalone_workspace":workspace,"title":p["title"].as_str().unwrap_or("New conversation"),"status":"idle","created_at":store::now(),"updated_at":store::now(),"request_id":null,"plan":null});
+                value["permission_mode"] = json!(mode);
                 if let Some(selection) = p.get("selection") {
                     if pid.is_some() { bail!("Project conversations use Superagent; direct selection is unavailable"); }
                     store.seed_model_catalog("")?;
@@ -619,6 +627,17 @@ impl Engine {
                 } else { value["chat_selection"] = direct_default(&store)?; }
                 store.put("conversation", pid.unwrap_or(""), &value)?;
                 Ok(value)
+            }
+            "studio/conversation/permission" => {
+                let cid = required(p, "conversation_id")?;
+                let mut c = store.entity("conversation", cid)?;
+                p.get("permission_mode").context("Missing permission_mode")?;
+                let mode = permission_mode(p)?;
+                ensure_conversation_idle(self, &store, &c)?;
+                c["permission_mode"] = json!(mode);
+                c["updated_at"] = json!(store::now());
+                store.put("conversation", c["project_id"].as_str().unwrap_or(""), &c)?;
+                store.snapshot(cid)
             }
             "studio/conversation/project" => {
                 let cid = required(p, "conversation_id")?;
@@ -912,6 +931,7 @@ impl Engine {
                 {
                     continue;
                 }
+                t["permission_mode"] = json!(permission_mode(&c)?);
                 candidates.push((t, workspace.to_owned()));
             }
             candidates.sort_by(|(a, _), (b, _)| {
@@ -951,8 +971,9 @@ impl Engine {
                     ));
                 }
             }
+            let mode = permission_mode(&task)?;
             let input: RunInput = serde_json::from_value(
-                json!({"provider":task["provider"],"workspace":workspace,"prompt":prompt,"role":null,"model":task["model"],"effort":task["effort"],"instructions":task["instructions"],"read_only":task["read_only"],"attachments":task["attachments"]}),
+                json!({"provider":task["provider"],"workspace":workspace,"prompt":prompt,"role":null,"model":task["model"],"effort":task["effort"],"instructions":task["instructions"],"read_only":task["read_only"],"attachments":task["attachments"],"permission_mode":mode}),
             )?;
             if task["read_only"] == false {
                 let before = crate::changes::snapshot(&workspace).await;
@@ -1062,6 +1083,11 @@ fn refresh_task(store: &Store, task: &mut Value) -> Result<()> {
                 }
                 Some("ready") => { clear_connection_notice(task); }
                 _ => {}
+            }
+        }
+        if event.kind == "notice" && event.payload["phase"] == "permission_review" {
+            if let Some(text) = event.payload["text"].as_str() {
+                task["permission_notice"] = json!(bounded(text, 2000));
             }
         }
         if event.kind == "error" && event.payload.pointer("/raw/params/willRetry") == Some(&json!(true)) {
@@ -1440,7 +1466,8 @@ fn accept_plan(store: &Store, c: &mut Value, raw: &str) -> Result<()> {
             bail!("Task dependency cycle detected");
         }
     }
-    let approval = accepted.iter().any(|t| t["read_only"] == false);
+    let approval = permission_mode(c)? == PermissionMode::Ask
+        && accepted.iter().any(|t| t["read_only"] == false);
     for t in &mut accepted {
         if approval {
             t["status"] = json!("awaiting_approval");
@@ -1883,6 +1910,7 @@ fn retry_failed_task(store: &Store, task: &mut Value) -> Result<()> {
     task["error"] = Value::Null;
     task["result"] = json!("");
     task["approvals"] = json!([]);
+    task["permission_notice"] = Value::Null;
     if let Some(o) = task.as_object_mut() {
         o.remove("actual_model");
         o.remove("actual_effort");

@@ -11,7 +11,8 @@
   import SettingsPage from "./components/SettingsPage.svelte";
   import { request } from "./lib/api";
   import { createAttachmentController } from "./lib/attachments";
-  import type { Project, Conversation, Snapshot, Task, Settings, Agent, Connections, Page, Preview, FileInfo, RunEvent, Approval, Message, ModelSelection } from "./lib/protocol";
+  import { permissionMode as savedPermissionMode } from './lib/permissions';
+  import type { Project, Conversation, Snapshot, Task, Settings, Agent, Connections, Page, Preview, FileInfo, RunEvent, Approval, Message, ModelSelection, PermissionMode } from "./lib/protocol";
   import { isActive } from "./lib/protocol";
   let page = $state<Page>("chat"), connected = $state(false), connecting = $state(true), busy = $state(false), error = $state(""), dragging = $state(false);
   let projects = $state<Project[]>([]), conversations = $state<Conversation[]>([]), projectId = $state(""), conversationId = $state(""), snapshot = $state<Snapshot | null>(null);
@@ -20,6 +21,8 @@
   let catalog = $state<ModelCatalog>({models:[],providers:[]});
   let chatDefault = $state<ModelSelection | null>(null);
   let newChatSelection = $state<ModelSelection | null | undefined>(undefined);
+  let newChatPermission = $state<PermissionMode>('ask');
+  const chatPermission = $derived(conversationId ? savedPermissionMode(snapshot?.conversation.permission_mode) : newChatPermission);
   const chatProviders = $derived(Object.entries(settings?.provider_connections??{}).filter(([,enabled])=>enabled).map(([provider])=>provider));
   const chatSelection = $derived(conversationId ? snapshot?.conversation.chat_selection??null : newChatSelection === undefined ? chatDefault : newChatSelection);
   const chatReady = $derived(!!projectId || chatSelectionAvailable(catalog,chatProviders,chatSelection));
@@ -28,6 +31,14 @@
       if(!conversationId) { newChatSelection=selection; rememberDraft(); return; }
       await act(async()=>{
           mergeSnapshot(await request<Snapshot>('studio/conversation/selection',{conversation_id:conversationId,selection}));
+          await refreshLists();
+      });
+  }
+  async function changeChatPermission(permission_mode: PermissionMode) {
+      if(busy || active || attachmentsBusy) return;
+      if(!conversationId) { newChatPermission=permission_mode; rememberDraft(); return; }
+      await act(async()=>{
+          mergeSnapshot(await request<Snapshot>('studio/conversation/permission',{conversation_id:conversationId,permission_mode}));
           await refreshLists();
       });
   }
@@ -110,16 +121,17 @@
       text: string;
       attachments: Preview[];
       selection?: ModelSelection | null;
+      permissionMode?: PermissionMode;
   }>();
   const draftKey = () => conversationId || "new";
   function rememberDraft() {
-      drafts.set(draftKey(), { text: prompt, attachments: [...attachments], selection:newChatSelection });
+      drafts.set(draftKey(), { text: prompt, attachments: [...attachments], selection:newChatSelection, permissionMode:chatPermission });
   }
   function restoreDraft() {
       const draft = drafts.get(draftKey());
       prompt = draft?.text ?? "";
       attachments = draft?.attachments ?? [];
-      if(!conversationId) newChatSelection=draft?.selection;
+      if(!conversationId) { newChatSelection=draft?.selection; newChatPermission=savedPermissionMode(draft?.permissionMode); }
   }
   let pendingAttachments = $state<Record<string, number>>({});
   const attachmentsBusy = $derived((pendingAttachments[draftKey()] ?? 0) > 0);
@@ -338,9 +350,10 @@
       const selection = !projectId ? chatSelection : null;
       await act(async () => {
           if (!conversationId) {
-              const c = await request<Conversation>("studio/conversation/create", { project_id: projectId || null, ...(!projectId && selection ? {selection} : {}) });
+              const c = await request<Conversation>("studio/conversation/create", { project_id: projectId || null, permission_mode:chatPermission, ...(!projectId && selection ? {selection} : {}) });
               drafts.delete(draftKey());
               conversationId = c.id;
+              snapshot = { conversation:c, messages:[], tasks:[], plan:null };
               generation++;
           }
           const data = await request<Snapshot>("studio/message/send", { conversation_id: conversationId, text: prompt, ...(!projectId && selection ? {selection} : {}), attachments: attachments.map(({ id, kind, path, mime }) => ({ id, kind, path, mime })) });
@@ -587,7 +600,7 @@
 </div>
 </div>
 {/if}
-<Composer selection={chatSelection} providers={chatProviders} {catalog} selectionReady={chatReady} onSelection={changeChatSelection} bind:text={prompt} {attachments} disabled={!connected} busy={busy||attachmentsBusy} {active} {projects} {projectId} onProjectChange={changeProject} onSend={send} onAttach={pickFiles} onRemove={removeAttachment} onPaste={pasteImage} onStop={stopConversation}/>
+<Composer selection={chatSelection} providers={chatProviders} {catalog} selectionReady={chatReady} onSelection={changeChatSelection} permissionMode={chatPermission} onPermissionChange={changeChatPermission} bind:text={prompt} {attachments} disabled={!connected} busy={busy||attachmentsBusy} {active} {projects} {projectId} onProjectChange={changeProject} onSend={send} onAttach={pickFiles} onRemove={removeAttachment} onPaste={pasteImage} onStop={stopConversation}/>
 </section>
 {#if showActivity&&snapshot}
 <TaskPanel {moreEvents} onMoreEvents={()=>act(readEvents)} hasEarlier={(snapshot.total_tasks??snapshot.tasks.length)>snapshot.tasks.length} onEarlier={loadEarlierTasks} tasks={snapshot.tasks} {events} {busy} onStop={stopTask} onInspect={inspect} onClose={()=>showActivity=false}/>

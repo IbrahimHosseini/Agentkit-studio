@@ -1,12 +1,15 @@
 <script lang="ts">
-  import type { Preview, Project, ModelSelection } from "../lib/protocol";
+  import type { Preview, Project, ModelSelection, PermissionMode } from "../lib/protocol";
+  import PermissionMenu from './PermissionMenu.svelte';
   import { connectedModels, modelEfforts, modelKey, switchModel, type ModelCatalog } from '../lib/model-options';
-  let { selection, providers, catalog, selectionReady, onSelection, text = $bindable(""), attachments, disabled, busy, active, projects, projectId, onProjectChange, onSend, onAttach, onRemove, onPaste, onStop }: {
+  let { selection, providers, catalog, selectionReady, onSelection, permissionMode, onPermissionChange, text = $bindable(""), attachments, disabled, busy, active, projects, projectId, onProjectChange, onSend, onAttach, onRemove, onPaste, onStop }: {
       selection: ModelSelection | null;
       providers: string[];
       catalog: ModelCatalog;
       selectionReady: boolean;
       onSelection: (selection: ModelSelection) => void;
+      permissionMode: PermissionMode;
+      onPermissionChange: (mode: PermissionMode) => void | Promise<void>;
       text?: string;
       attachments: Preview[];
       disabled: boolean;
@@ -118,8 +121,11 @@
 {/if}
 
 </form>
+<div class="composer-footer">
+<PermissionMenu value={permissionMode} disabled={disabled||busy||active} hasProject={!!projectId} onChange={onPermissionChange}/>
 <div class="composer-footnote">
 <span>{projectId?'Superagent chooses the right agents and models.':!providers.length?'Connect a provider in Connections to start chatting.':!selectionReady?'Choose an available model and effort, or reconnect its provider.':'Messages go directly to your selected model.'}</span>
 <span>Shift + Enter for a new line</span>
+</div>
 </div>
 </div>

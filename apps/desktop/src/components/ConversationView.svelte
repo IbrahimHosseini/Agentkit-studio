@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Message, Plan, Approval, Task } from "../lib/protocol";
   import MessageBody from "./MessageBody.svelte";
+  import TaskNotices from './TaskNotices.svelte';
+  import { isActive } from '../lib/protocol';
   import { tick } from "svelte";
   let container: HTMLDivElement;
   let follow = $state(true);
@@ -97,6 +99,12 @@
 
 
 {#if active&&plan?.status!=='awaiting_approval'}
+{#each tasks.filter(t=>(isActive(t.status)||t.status==='starting')&&(t.retry_notice||t.permission_notice)) as task(task.id)}
+<article class="message notice">
+<div class="message-author">Activity · <bdi>{task.kind==='direct'?task.provider:task.agent_id}</bdi></div>
+<TaskNotices {task}/>
+</article>
+{/each}
 <div class="working" role="status">
 <span class="dot active">
 </span> {tasks.some(t=>t.kind==='direct'&&['queued','starting','running'].includes(t.status))?'Generating a response':'Your team is working'}<span class="working-dots">…</span>
