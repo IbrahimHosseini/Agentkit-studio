@@ -36,6 +36,17 @@
 @media(hover:none){.sidebar-item .delete-item{opacity:1;pointer-events:auto}}
 .agent-grid{align-items:start;margin-bottom:24px}
 
+.project-list{max-height:42vh;min-height:0;flex-shrink:1}
+.project-row[aria-disabled=true]{opacity:.45;cursor:wait}
+.project-group+.project-group{margin-top:3px}
+.project-chats{margin:1px 0 9px 28px;min-width:0}
+.project-chats[hidden]{display:none}
+.project-chats .conversation-row{padding:5px 5px;font-size:12px;line-height:1.5;margin-bottom:0}
+.project-chats .delete-item{padding-inline:5px}
+.project-show-more{border:0;background:transparent;color:var(--muted);font-size:11px;padding:7px 5px;text-align:left}
+.project-show-more:hover{background:transparent;color:var(--text)}
+.project-empty{padding:5px;font-size:10px}
+
 /* Size closed selects to the current text, not the longest menu option. */
 .chat-model-controls{display:flex;align-items:center;gap:8px;margin-left:auto;min-width:0}
 .chat-model-controls .chat-choice{position:relative;display:block;margin:0;min-width:0;max-width:230px;font-size:11px;line-height:18px;font-weight:400}

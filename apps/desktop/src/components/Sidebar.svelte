@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Project, Conversation, Page } from "../lib/protocol";
   import type { ChatSort, SortDirection } from "../lib/model-options";
   import { isActive } from "../lib/protocol";
@@ -21,6 +22,28 @@
       onAdd: () => void;
       onPage: (p: Page) => void;
   } = $props();
+  const sidebarId = $props.id();
+  let expandedProjects = $state<Record<string,boolean>>({});
+  let expandedChats = $state<Record<string,boolean>>({});
+  function projectOpen(id: string) {
+      return expandedProjects[id] ?? projectId===id;
+  }
+  function toggleProject(project: Project) {
+      if (busy) return;
+      const open = !projectOpen(project.id);
+      expandedProjects = {...expandedProjects,[project.id]:open};
+      if (open && (projectId!==project.id || page!=='chat')) onProject(project);
+  }
+  // Reveal a chat selected from All conversations without reopening a folder
+  // that the user just collapsed or resetting its state on every status poll.
+  $effect(() => {
+      const id=projectId, chat=conversationId;
+      if (page==='chat' && id && chat) untrack(() => {
+          expandedProjects = {...expandedProjects,[id]:true};
+          if (conversations.filter(c=>c.project_id===id).findIndex(c=>c.id===chat)>=5)
+              expandedChats = {...expandedChats,[id]:true};
+      });
+  });
   let sortOpen = $state(false);
   let sortRoot: HTMLDivElement;
   function closeSort(event: MouseEvent) {
@@ -34,6 +57,15 @@
   }
 </script>
 <svelte:window onclick={closeSort} onkeydown={escapeSort}/>
+{#snippet conversationItem(conversation: Conversation, nested = false)}
+<div class="sidebar-item" class:project-conversation={nested}>
+<button class="conversation-row" class:selected={page==='chat'&&conversationId===conversation.id} onclick={()=>onConversation(conversation)} title={conversation.title} aria-current={page==='chat'&&conversationId===conversation.id?'page':undefined}>
+<span dir="auto">{conversation.title}</span>
+{#if isActive(conversation.status)}<span class="dot active" aria-label={conversation.status}></span>{/if}
+</button>
+<button class="delete-item icon" aria-label={`Delete conversation ${conversation.title}`} title="Delete conversation" disabled={busy||!connected||isActive(conversation.status)} onclick={()=>onDeleteConversation(conversation)}>×</button>
+</div>
+{/snippet}
 <aside class="sidebar" aria-label="Workspace navigation">
   <div class="brand">
 <span class="brand-symbol">a<span>·</span>
@@ -50,12 +82,25 @@
 </div>
   <div class="project-list">
 {#each projects as project (project.id)}
+{@const open = projectOpen(project.id)}
+{@const chats = conversations.filter(c=>c.project_id===project.id)}
+{@const showAll = expandedChats[project.id] ?? chats.slice(5).some(c=>c.id===conversationId)}
+<div class="project-group">
 <div class="sidebar-item">
-<button class="project-row" class:selected={projectId===project.id} onclick={()=>onProject(project)} title={project.path}>
-<span aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex-shrink:0"><path d="M3 17V6a2 2 0 0 1 2-2h4l2 3h7a2 2 0 0 1 2 2v2"/><path d="M3 18l2.6-6a1.7 1.7 0 0 1 1.6-1h13a1.5 1.5 0 0 1 1.4 2l-2.2 5.7A2 2 0 0 1 17.5 20H4.4A1.5 1.5 0 0 1 3 18Z"/></svg></span>
+<button class="project-row" class:selected={projectId===project.id} onclick={()=>toggleProject(project)} title={project.path} aria-disabled={busy} aria-expanded={open} aria-controls={`${sidebarId}-project-${project.id}`}>
+<span aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex-shrink:0">{#if open}<path d="M3 17V6a2 2 0 0 1 2-2h4l2 3h7a2 2 0 0 1 2 2v2"/><path d="M3 18l2.6-6a1.7 1.7 0 0 1 1.6-1h13a1.5 1.5 0 0 1 1.4 2l-2.2 5.7A2 2 0 0 1 17.5 20H4.4A1.5 1.5 0 0 1 3 18Z"/>{:else}<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M3 10h18"/>{/if}</svg></span>
 <bdi>{project.name}</bdi>
 </button>
 <button class="delete-item icon" aria-label={`Delete project ${project.name}`} title="Remove project from Studio" disabled={busy||!connected||conversations.some(c=>c.project_id===project.id&&isActive(c.status))} onclick={()=>onDeleteProject(project)}>×</button>
+</div>
+<nav class="project-chats" id={`${sidebarId}-project-${project.id}`} aria-label={`Conversations in ${project.name}`} hidden={!open}>
+{#if open}
+{#each showAll?chats:chats.slice(0,5) as conversation (conversation.id)}
+{@render conversationItem(conversation,true)}
+{:else}<p class="sidebar-hint project-empty">No conversations yet.</p>{/each}
+{#if chats.length>5}<button class="project-show-more" aria-expanded={showAll} onclick={()=>expandedChats={...expandedChats,[project.id]:!showAll}}>{showAll?'Show less':'Show more'}</button>{/if}
+{/if}
+</nav>
 </div>
 {:else}
 <p class="sidebar-hint">Projects are optional. Add a folder for workspace tasks.</p>
@@ -84,16 +129,7 @@
 </div>
   <nav class="conversation-list" aria-label="Conversations">
 {#each conversations as conversation (conversation.id)}
-<div class="sidebar-item">
-<button class="conversation-row" class:selected={page==='chat'&&conversationId===conversation.id} onclick={()=>onConversation(conversation)} aria-current={conversationId===conversation.id?'page':undefined}>
-<span dir="auto">{conversation.title}</span>
-{#if isActive(conversation.status)}
-<span class="dot active" aria-label={conversation.status}>
-</span>
-{/if}
-</button>
-<button class="delete-item icon" aria-label={`Delete conversation ${conversation.title}`} title="Delete conversation" disabled={busy||!connected||isActive(conversation.status)} onclick={()=>onDeleteConversation(conversation)}>×</button>
-</div>
+{@render conversationItem(conversation)}
 {:else}
 <p class="sidebar-hint">Your conversations will appear here.</p>
 {/each}
