@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde_json::{json, Value};
+use base64::Engine as _;
 use std::{
     fs,
     io::Write,
@@ -56,6 +57,18 @@ async fn engine_request(method: String, params: Value) -> Result<Value, String> 
     agentkit_core::client::request(&method, params)
         .await
         .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn save_tool_screenshot(app: tauri::AppHandle, data: String) -> Result<Option<String>, String> {
+    if data.len() > 12 * 1024 * 1024 { return Err("Screenshot exceeds the size limit".into()); }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "Invalid screenshot data")?;
+    if bytes.len() > 8 * 1024 * 1024 || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") { return Err("Expected a PNG screenshot up to 8 MiB".into()); }
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(file) = app.dialog().file().add_filter("PNG image", &["png"]).set_file_name("simulator-screenshot.png").blocking_save_file() else { return Ok(None); };
+        let path = file.into_path().map_err(|e|e.to_string())?;
+        fs::write(&path, bytes).map_err(|e|e.to_string())?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }).await.map_err(|e|e.to_string())?
 }
 fn image_mime(path: &Path) -> &'static str {
     match path
@@ -230,11 +243,16 @@ fn main() {
                     std::env::set_var("AGENTKIT_ENGINE_BIN", engine);
                 }
             }
+            if std::env::var_os("AGENTKIT_BROWSER_HELPER").is_none() {
+                let helper = app.path().resource_dir()?.join("browser-runtime/browser.mjs");
+                if helper.is_file() { std::env::set_var("AGENTKIT_BROWSER_HELPER", helper); }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             frontend_ready,
             engine_request,
+            save_tool_screenshot,
             attachment_info,
             reveal_source_file,
             stage_clipboard_image,

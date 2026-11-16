@@ -170,6 +170,15 @@ async fn drive(
                     if let Some(model)=&input.model { params["model"]=json!(model); }
                     if let Some(instructions)=&input.instructions { params["developerInstructions"]=json!(instructions); params["config"]=json!({"features.multi_agent":false}); }
                     if input.read_only { params["config"]=readonly_config.clone(); }
+                    if !input.read_only {
+                        if let (Some(conversation),Some(binary))=(&input.devtools_conversation_id,&input.devtools_cli) {
+                            if params["config"].is_null(){params["config"]=json!({});}
+                            params["config"]["mcp_servers"]=json!({"studio_devtools":{
+                                "command":binary,"args":["mcp-server"],
+                                "env":{"AGENTKIT_DEVTOOLS_CONVERSATION":conversation}
+                            }});
+                        }
+                    }
                     params.as_object_mut().unwrap().extend(permission_params(input,false).as_object().unwrap().clone());
                     if let Some(effort)=&input.effort { if params["config"].is_null(){params["config"]=json!({});} params["config"]["model_reasoning_effort"]=json!(effort); }
                     write(&mut stdin,json!({"id":2,"method":method,"params":params})).await?;

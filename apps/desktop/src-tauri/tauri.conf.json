@@ -37,7 +37,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "binaries/": "binaries/"
+      "binaries/": "binaries/",
+      "../devtools/browser.mjs": "browser-runtime/browser.mjs",
+      "../node_modules/playwright-core/": "browser-runtime/node_modules/playwright-core/"
     }
   }
 }

@@ -271,6 +271,8 @@ mod tests {
             read_only: false,
             claude_auth_mode: None,
             permission_mode: Default::default(),
+            devtools_conversation_id: None,
+            devtools_cli: None,
         }
     }
     #[test]

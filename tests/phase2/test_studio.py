@@ -559,7 +559,8 @@ class StudioTests(unittest.TestCase):
         listing={'jsonrpc':'2.0','id':2,'method':'tools/list'}
         call={'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'list_agents','arguments':{'workspace':str(self.project)}}}
         replies=self.mcp([initialize,listing,call])
-        self.assertEqual(len(replies[1]['result']['tools']),5)
+        self.assertEqual({tool['name'] for tool in replies[1]['result']['tools']},
+                         {'list_agents','delegate','get_status','get_result','stop','devtools'})
         self.assertTrue(replies[2]['result']['isError'])
         settings=self.rpc('studio/settings');settings['mcp_enabled']=True
         self.rpc('studio/settings',{'settings':settings})

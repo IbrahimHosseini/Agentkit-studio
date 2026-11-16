@@ -17,6 +17,7 @@ Studio is an independent application built with Tauri 2, Svelte 5, TypeScript an
 - **Local history:** manage projects and conversations, sort chats and inspect provider activity. Closing the window does not cancel a running task.
 - **Attachments and mixed text:** attach files and images; write Persian, Arabic or mixed-direction prose in an English, left-to-right interface.
 - **CLI and optional MCP bridge:** access the same engine from the terminal or enable external MCP access in Connections.
+- **Development tools:** open Browser, iOS Simulator, Android Emulator and a real Terminal beside the chat, with explicit agent access controls. See [setup, usage and current limitations](docs/devtools.md).
 
 Studio settings do not rewrite installed agent definitions. Installed or advertised catalog metadata does not guarantee that an account can execute a model.
 

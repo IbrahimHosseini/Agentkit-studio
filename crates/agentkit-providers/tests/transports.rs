@@ -256,6 +256,7 @@ async fn explicit_config_and_readonly_cross_provider_boundary() {
     final_messages_and_failures(&fixture).await;
     native_auth_scenarios(&mut fixture).await;
     permission_mode_scenarios(&fixture).await;
+    devtools_bridge_scenarios(&fixture).await;
     fs::write(fixture.root.join("unsupported"), "").unwrap();
     let before = fixture.log().len();
     let (result, _) = run(fixture.input("claude")).await;
@@ -265,6 +266,47 @@ async fn explicit_config_and_readonly_cross_provider_boundary() {
         before,
         "unsupported runtime must not start inference"
     );
+}
+async fn devtools_bridge_scenarios(fixture: &Fixture) {
+    // Per-run bridge configuration must never rewrite the inherited provider setup,
+    // and read-only runs must not regain modifying tools through the new bridge.
+    fs::write(fixture.root.join("scenario"), "permission-completed").unwrap();
+    for provider in ["codex", "claude"] {
+        for read_only in [false, true] {
+            let before = fixture.log().len();
+            let mut input = fixture.input(provider);
+            input.read_only = read_only;
+            input.devtools_conversation_id = Some("fixture-conversation".into());
+            input.devtools_cli = Some("/fixture/agentkit".into());
+            let (result, _) = run(input).await;
+            result.unwrap();
+            let calls = fixture.log();
+            let calls = &calls[before..];
+            if provider == "codex" {
+                let start = calls.iter().find(|v|v["method"]=="thread/start").unwrap();
+                let bridge = &start["params"]["config"]["mcp_servers"]["studio_devtools"];
+                if read_only { assert!(bridge.is_null()); }
+                else {
+                    assert_eq!(bridge["command"],"/fixture/agentkit");
+                    assert_eq!(bridge["args"],json!(["mcp-server"]));
+                    assert_eq!(bridge["env"]["AGENTKIT_DEVTOOLS_CONVERSATION"],"fixture-conversation");
+                }
+            } else {
+                let call=calls.iter().find(|v|v["argv"].as_array().is_some_and(|a|a.contains(&json!("--print")))).unwrap();
+                let args=call["argv"].as_array().unwrap();
+                let position=args.iter().position(|a|a=="--mcp-config");
+                if read_only { assert!(position.is_none()); }
+                else {
+                    let config:Value=serde_json::from_str(args[position.unwrap()+1].as_str().unwrap()).unwrap();
+                    let bridge=&config["mcpServers"]["studio_devtools"];
+                    assert_eq!(bridge["command"],"/fixture/agentkit");
+                    assert_eq!(bridge["args"],json!(["mcp-server"]));
+                    assert_eq!(bridge["env"]["AGENTKIT_DEVTOOLS_CONVERSATION"],"fixture-conversation");
+                }
+            }
+        }
+    }
+    fs::remove_file(fixture.root.join("scenario")).unwrap();
 }
 async fn codex_account_bootstrap(fixture: &Fixture) {
     for (scenario, expected, retryable) in [

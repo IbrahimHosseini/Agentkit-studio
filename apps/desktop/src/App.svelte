@@ -7,6 +7,8 @@
   import Sidebar from "./components/Sidebar.svelte";
   import Composer from "./components/Composer.svelte";
   import ConversationView from "./components/ConversationView.svelte";
+  import DevToolsPanel from "./components/DevToolsPanel.svelte";
+  import {names, type Tool} from "./lib/devtools";
   import TaskPanel from "./components/TaskPanel.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import { request } from "./lib/api";
@@ -17,6 +19,28 @@
   let page = $state<Page>("chat"), connected = $state(false), connecting = $state(true), busy = $state(false), error = $state(""), dragging = $state(false);
   let projects = $state<Project[]>([]), conversations = $state<Conversation[]>([]), projectId = $state(""), conversationId = $state(""), snapshot = $state<Snapshot | null>(null);
   let prompt = $state(""), attachments = $state<Preview[]>([]), showActivity = $state(true), events = $state<RunEvent[]>([]);
+  let devtool = $state<Tool|null>(null);
+  let preferredDeviceId = $state(''), preferredTerminalId = $state('');
+  const seenToolActivity = new Map<string,string>();
+  let openingTool = false;
+  async function openTool(tool:Tool) {
+    if(openingTool) return;
+    if(devtool===tool){devtool=null;return;}
+    if(!projectId){error='Attach a project to use development tools.';return;}
+    const g=generation,pid=projectId,cid=conversationId;
+    openingTool=true;
+    try {
+      if(!cid){
+        const c=await request<Conversation>('studio/conversation/create',{project_id:pid,permission_mode:chatPermission});
+        if(disposed||g!==generation||projectId!==pid||conversationId!==cid)return;
+        conversationId=c.id;snapshot={conversation:c,messages:[],tasks:[],plan:null};
+        await refreshLists();
+      }
+      if(disposed||g!==generation||projectId!==pid||page!=='chat')return;
+      preferredDeviceId='';preferredTerminalId='';devtool=tool;showActivity=false;
+    } catch(e){if(!disposed&&g===generation)error=String(e);}
+    finally {openingTool=false;}
+  }
   let agents = $state<Agent[]>([]), connections = $state<Connections | null>(null), settings = $state<Settings | null>(null);
   let catalog = $state<ModelCatalog>({models:[],providers:[]});
   let chatDefault = $state<ModelSelection | null>(null);
@@ -174,8 +198,21 @@
       if (!id)
           return;
       const data = await request<Snapshot>("studio/conversation/get", { conversation_id: id });
-      if (!disposed && g === generation && conversationId === id)
+      if (!disposed && g === generation && conversationId === id) {
           mergeSnapshot(data);
+          if (projectId && page === 'chat') {
+              try {
+                  const activity = await request<{id:string|null;target:Tool;device_id?:string;terminal_id?:string}>('devtools/activity/get',{conversation_id:id});
+                  if (!disposed && g === generation && conversationId === id && page === 'chat' && activity.id && activity.id !== seenToolActivity.get(id) && activity.target in names) {
+                      seenToolActivity.set(id,activity.id);
+                      preferredDeviceId=activity.device_id??'';
+                      preferredTerminalId=activity.terminal_id??'';
+                      devtool=activity.target;
+                      showActivity=false;
+                  }
+              } catch { /* Older engines and a tool closing during refresh leave chat usable. */ }
+          }
+      }
   }
   async function refreshSettings() {
       const g = generation;
@@ -559,7 +596,10 @@
 <span dir="auto">{page==='chat'?(snapshot?.conversation.title??'New conversation'):page==='agents'?'Agents':page==='connections'?'Connections':'Settings'}</span>
 </div>
 {#if page==='chat'}
-<button class="subtle-button" onclick={()=>showActivity=!showActivity} aria-expanded={showActivity}>◫ <span>Activity</span>
+<div class="devtools-toolbar">
+{#each ['browser','ios','android','terminal'] as t}<button title={names[t as Tool]} aria-label={names[t as Tool]} aria-pressed={devtool===t} disabled={!connected} onclick={()=>openTool(t as Tool)}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">{#if t==='browser'}<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>{:else if t==='terminal'}<path d="m4 6 6 6-6 6m9 0h7"/>{:else if t==='ios'}<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4m-3 14h2"/>{:else}<rect x="5" y="5" width="14" height="16" rx="3"/><path d="m8 5-2-3m10 3 2-3M9 9h1m4 0h1M2 10v7m20-7v7"/>{/if}</svg></button>{/each}
+</div>
+<button class="subtle-button" onclick={()=>{showActivity=!showActivity;devtool=null;}} aria-expanded={showActivity}>◫ <span>Activity</span>
 </button>
 {/if}
 </header>
@@ -576,7 +616,7 @@
 
 
 {#if page==='chat'}
-<div class="chat-layout" class:with-panel={showActivity&&!!snapshot}>
+<div class="chat-layout" class:with-panel={(showActivity||!!devtool)&&!!snapshot}>
 <section class="chat-column" aria-label="Chat">
 {#if snapshot}
 <ConversationView hasEarlier={(snapshot.total_messages??snapshot.messages.length)>snapshot.messages.length} onEarlier={loadEarlierMessages} tasks={snapshot.tasks} messages={snapshot.messages} plan={snapshot.plan} {approvals} {busy} {active} onPlan={decidePlan} onApproval={approve}/>
@@ -602,7 +642,9 @@
 {/if}
 <Composer selection={chatSelection} providers={chatProviders} {catalog} selectionReady={chatReady} onSelection={changeChatSelection} permissionMode={chatPermission} onPermissionChange={changeChatPermission} bind:text={prompt} {attachments} disabled={!connected} busy={busy||attachmentsBusy} {active} {projects} {projectId} onProjectChange={changeProject} onSend={send} onAttach={pickFiles} onRemove={removeAttachment} onPaste={pasteImage} onStop={stopConversation}/>
 </section>
-{#if showActivity&&snapshot}
+{#if devtool&&conversationId}
+{#key conversationId}<DevToolsPanel {conversationId} {preferredDeviceId} {preferredTerminalId} tool={devtool} onclose={()=>devtool=null}/>{/key}
+{:else if showActivity&&snapshot}
 <TaskPanel {moreEvents} onMoreEvents={()=>act(readEvents)} hasEarlier={(snapshot.total_tasks??snapshot.tasks.length)>snapshot.tasks.length} onEarlier={loadEarlierTasks} tasks={snapshot.tasks} {events} {busy} onStop={stopTask} onInspect={inspect} onClose={()=>showActivity=false}/>
 {/if}
 </div>

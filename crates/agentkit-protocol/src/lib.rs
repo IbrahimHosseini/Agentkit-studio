@@ -56,6 +56,11 @@ pub struct RunInput {
     pub claude_auth_mode: Option<ClaudeAuthMode>,
     #[serde(default)]
     pub permission_mode: PermissionMode,
+    /// Ephemeral tool bridge assigned by the Studio scheduler, never user settings.
+    #[serde(default)]
+    pub devtools_conversation_id: Option<String>,
+    #[serde(default)]
+    pub devtools_cli: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

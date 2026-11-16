@@ -135,6 +135,14 @@ pub async fn run(
     if let Some(instructions) = &input.instructions {
         command.arg("--append-system-prompt").arg(instructions);
     }
+    if !input.read_only {
+        if let (Some(conversation), Some(binary)) = (&input.devtools_conversation_id, &input.devtools_cli) {
+            command.arg("--mcp-config").arg(json!({"mcpServers":{"studio_devtools":{
+                "command":binary,"args":["mcp-server"],
+                "env":{"AGENTKIT_DEVTOOLS_CONVERSATION":conversation}
+            }}}).to_string());
+        }
+    }
     if input.instructions.is_some() && !input.read_only {
         command.args(["--disallowedTools", "Agent,Task"]);
     }

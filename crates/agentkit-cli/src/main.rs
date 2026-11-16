@@ -205,6 +205,8 @@ async fn execute() -> Result<()> {
                 read_only: false,
                 claude_auth_mode: None,
                 permission_mode: Default::default(),
+                devtools_conversation_id: None,
+                devtools_cli: None,
             };
             ("start", serde_json::to_value(input)?)
         }
@@ -272,7 +274,9 @@ async fn mcp_server() -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     let mut input = BufReader::new(tokio::io::stdin());
     let mut output = tokio::io::stdout();
+    let scope = std::env::var("AGENTKIT_DEVTOOLS_CONVERSATION").ok().filter(|s|!s.is_empty());
     let definitions=[
+        ("devtools","devtools/call","Use the conversation's Browser, Terminal, iOS Simulator or Android Emulator. Agent access must first be allowed in the tool panel. terminal: create/list/read/write/resize/close (id, data, after cursor, cols, rows). browser: status/open/list/navigate/back/forward/reload/frame/click/type/key/scroll/resize/close/console/snapshot (url,page_id,x,y,text,key,delta_x,delta_y,width,height). ios/android: list/status/boot/shutdown/screenshot/tap/swipe/type/key/install/launch (device_id,normalized x/y/x2/y2,text,key,app_path,bundle_id). Screenshots return image content. Start by listing devices or opening a browser or terminal. No tool can grant its own access.",json!({"conversation_id":{"type":"string"},"target":{"type":"string","enum":["terminal","browser","ios","android"]},"action":{"type":"string"},"arguments":{"type":"object"}}),vec!["target","action"]),
         ("list_agents","studio/agents","List installed agents and their Studio settings.",json!({"workspace":{"type":"string"}}),vec!["workspace"]),
         ("delegate","studio/message/send","Submit a request to a conversation. Studio plans and enforces approval before extensive changes.",json!({"conversation_id":{"type":"string"},"text":{"type":"string"}}),vec!["conversation_id","text"]),
         ("get_status","studio/conversation/get","Get conversation messages, execution status, tasks and results.",json!({"conversation_id":{"type":"string"}}),vec!["conversation_id"]),
@@ -310,12 +314,12 @@ async fn mcp_server() -> Result<()> {
             ),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(
-                json!({"tools":definitions.iter().map(|(name,_,description,properties,required)|json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}})).collect::<Vec<_>>()}),
+                json!({"tools":definitions.iter().filter(|(name,..)|scope.is_none() || *name=="devtools").map(|(name,_,description,properties,required)|json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}})).collect::<Vec<_>>()}),
             ),
             "tools/call" => {
                 if let Some((_, method, _, properties, required)) = definitions
                     .iter()
-                    .find(|(name, ..)| p["name"].as_str() == Some(name))
+                    .find(|(name, ..)| p["name"].as_str() == Some(name) && (scope.is_none() || *name=="devtools"))
                 {
                     let args = p.get("arguments").cloned().unwrap_or_else(|| json!({}));
                     let valid = args.as_object().is_some_and(|o| {
@@ -330,14 +334,15 @@ async fn mcp_server() -> Result<()> {
                         )
                     } else {
                         let dispatched=async {
-                            let settings=agentkit_core::client::request("studio/settings",json!({})).await?;
-                            if settings["mcp_enabled"]!=true {anyhow::bail!("MCP tools are disabled. Enable the Studio MCP bridge in Connections first.");}
-                            agentkit_core::client::request(method,args).await
+                            if scope.is_none() {
+                                let settings=agentkit_core::client::request("studio/settings",json!({})).await?;
+                                if settings["mcp_enabled"]!=true {anyhow::bail!("MCP tools are disabled. Enable the Studio MCP bridge in Connections first.");}
+                            }
+                            if *method=="devtools/call" { dispatch_devtools_tool(&args,scope.as_deref()).await }
+                            else { agentkit_core::client::request(method,args).await }
                         }.await;
                         match dispatched {
-                            Ok(v) => Ok(
-                                json!({"content":[{"type":"text","text":serde_json::to_string(&v)?}],"isError":false}),
-                            ),
+                            Ok(v) => Ok(tool_content(v)),
                             Err(e) => Ok(
                                 json!({"content":[{"type":"text","text":e.to_string()}],"isError":true}),
                             ),
@@ -360,4 +365,43 @@ async fn mcp_server() -> Result<()> {
             .await?;
         output.flush().await?;
     }
+}
+
+// The stdio bridge never accepts actor/access overrides. The scoped provider
+// bridge is temporary and exposes no coordinator or permission-changing tools.
+async fn dispatch_devtools_tool(args: &Value, scope: Option<&str>) -> Result<Value> {
+    let target = args["target"].as_str().context("target must be a string")?;
+    if !matches!(target,"terminal"|"browser"|"ios"|"android") { anyhow::bail!("Invalid tool target"); }
+    let action = args["action"].as_str().context("action must be a string")?;
+    if action.is_empty() || action.len()>40 || !action.bytes().all(|b|b.is_ascii_lowercase()||b==b'_') { anyhow::bail!("Invalid tool action"); }
+    let supplied = args.get("conversation_id").map(|v|v.as_str().context("conversation_id must be a string")).transpose()?;
+    let conversation = match (scope,supplied) {
+        (Some(scope),Some(supplied)) if scope!=supplied => anyhow::bail!("Tool bridge is scoped to another conversation"),
+        (Some(scope),_) => scope,
+        (None,Some(supplied)) => supplied,
+        _ => anyhow::bail!("conversation_id is required for the external MCP bridge"),
+    };
+    let mut params = args.get("arguments").cloned().unwrap_or_else(||json!({}));
+    let object = params.as_object_mut().context("arguments must be an object")?;
+    for key in ["actor","conversation_id","_auth","target","platform"] { object.remove(key); }
+    object.insert("actor".into(),json!("agent"));
+    object.insert("conversation_id".into(),json!(conversation));
+    let target = if matches!(target,"ios"|"android") { object.insert("platform".into(),json!(target)); "mobile" } else { target };
+    agentkit_core::client::request(&format!("devtools/{target}/{action}"),params).await
+}
+fn tool_content(mut value: Value) -> Value {
+    let mut content=vec![];
+    if value["encoding"] == "base64" && value["text"].is_string() {
+        // Native xterm needs raw bytes; models need readable terminal output.
+        value.as_object_mut().unwrap().remove("data");
+        value["encoding"] = json!("utf8");
+    }
+    if let (Some(data),Some(mime))=(value["data"].as_str(),value["mime_type"].as_str()) {
+        if matches!(mime,"image/png"|"image/jpeg"|"image/webp") {
+            content.push(json!({"type":"image","data":data,"mimeType":mime}));
+            value.as_object_mut().unwrap().remove("data");
+        }
+    }
+    content.push(json!({"type":"text","text":value.to_string()}));
+    json!({"content":content,"isError":false})
 }

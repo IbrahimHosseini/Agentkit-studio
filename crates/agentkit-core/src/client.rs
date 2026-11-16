@@ -1,6 +1,7 @@
 use crate::paths;
-use agentkit_protocol::{Request, Response};
+use agentkit_protocol::{Request, RpcError};
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 use std::{
     path::PathBuf,
@@ -8,6 +9,21 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+
+#[derive(Deserialize)]
+struct ClientResponse {
+    id: String,
+    #[serde(default, deserialize_with = "present_result")]
+    result: Option<Value>,
+    error: Option<RpcError>,
+}
+
+// A successful null result must remain distinct from an absent result field.
+fn present_result<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
+}
 
 trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
@@ -100,14 +116,16 @@ pub async fn request(method: &str, params: Value) -> Result<Value> {
     stream.write_all(&bytes).await?;
     stream.flush().await?;
     let mut line = Vec::new();
-    let mut reader = BufReader::new(stream).take(2 * 1024 * 1024 + 1);
-    tokio::time::timeout(Duration::from_secs(30), reader.read_until(b'\n', &mut line))
+    // Device screenshots have a separate bounded response budget.
+    let mut reader = BufReader::new(stream).take(12 * 1024 * 1024 + 1);
+    let timeout = if method.starts_with("devtools/mobile/") { 150 } else { 30 };
+    tokio::time::timeout(Duration::from_secs(timeout), reader.read_until(b'\n', &mut line))
         .await
         .context("Engine response timed out")??;
-    if line.len() > 2 * 1024 * 1024 || !line.ends_with(b"\n") {
+    if line.len() > 12 * 1024 * 1024 || !line.ends_with(b"\n") {
         bail!("Invalid or oversized engine response");
     }
-    let response: Response = serde_json::from_slice(&line)?;
+    let response: ClientResponse = serde_json::from_slice(&line)?;
     if response.id != request.id {
         bail!("Engine response identifier mismatch");
     }
@@ -115,4 +133,20 @@ pub async fn request(method: &str, params: Value) -> Result<Value> {
         bail!("{}: {}", error.code, error.message);
     }
     response.result.context("Engine returned no result")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_distinguishes_null_from_missing_result() {
+        let null: ClientResponse = serde_json::from_str(r#"{"id":"test","result":null}"#).unwrap();
+        assert_eq!(null.result, Some(Value::Null));
+        let missing: ClientResponse = serde_json::from_str(r#"{"id":"test"}"#).unwrap();
+        assert!(missing.result.is_none());
+        let object: ClientResponse =
+            serde_json::from_str(r#"{"id":"test","result":{"ready":true}}"#).unwrap();
+        assert_eq!(object.result, Some(json!({"ready": true})));
+    }
 }

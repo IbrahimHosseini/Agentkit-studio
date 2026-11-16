@@ -143,6 +143,9 @@ impl Engine {
         }
         *lock(&self.last_activity)? = std::time::Instant::now();
         let p = &request.params;
+        if request.method.starts_with("devtools/") {
+            return self.devtools_dispatch(&request.method, p).await;
+        }
         if request.method.starts_with("studio/") {
             return self.studio_dispatch(&request.method, p).await;
         }
@@ -556,7 +559,7 @@ pub async fn serve() -> Result<()> {
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         loop {
             let permit = Arc::clone(&capacity).acquire_owned().await?;
-            let accepted = tokio::select! { accepted=listener.accept()=>Some(accepted?), _=engine.shutdown.notified()=>None, _=&mut termination=>None, _=tokio::time::sleep(std::time::Duration::from_secs(5))=>{if lock(&engine.active)?.is_empty()&&!engine.studio_busy()?&&lock(&engine.last_activity)?.elapsed().as_secs()>=60{None}else{continue;}} };
+            let accepted = tokio::select! { accepted=listener.accept()=>Some(accepted?), _=engine.shutdown.notified()=>None, _=&mut termination=>None, _=tokio::time::sleep(std::time::Duration::from_secs(5))=>{if lock(&engine.active)?.is_empty()&&!engine.studio_busy()?&&!crate::devtools::has_operations()&&!crate::devtools::has_terminals()&&!crate::devtools_browser::has_sessions()&&lock(&engine.last_activity)?.elapsed().as_secs()>=60{None}else{continue;}} };
             let Some((stream, _)) = accepted else {
                 let _ = fs::remove_file(&endpoint);
                 break;
@@ -580,7 +583,7 @@ pub async fn serve() -> Result<()> {
             .create(&endpoint)?;
         loop {
             let permit = Arc::clone(&capacity).acquire_owned().await?;
-            let connected_ok = tokio::select! { result=listener.connect()=>{result?;true}, _=engine.shutdown.notified()=>false, _=&mut termination=>false, _=tokio::time::sleep(std::time::Duration::from_secs(5))=>{if lock(&engine.active)?.is_empty()&&!engine.studio_busy()?&&lock(&engine.last_activity)?.elapsed().as_secs()>=60{false}else{continue;}}};
+            let connected_ok = tokio::select! { result=listener.connect()=>{result?;true}, _=engine.shutdown.notified()=>false, _=&mut termination=>false, _=tokio::time::sleep(std::time::Duration::from_secs(5))=>{if lock(&engine.active)?.is_empty()&&!engine.studio_busy()?&&!crate::devtools::has_operations()&&!crate::devtools::has_terminals()&&!crate::devtools_browser::has_sessions()&&lock(&engine.last_activity)?.elapsed().as_secs()>=60{false}else{continue;}}};
             if !connected_ok {
                 break;
             }
@@ -601,6 +604,8 @@ pub async fn serve() -> Result<()> {
         .shutting_down
         .store(true, std::sync::atomic::Ordering::SeqCst);
     stop_all(&engine).await;
+    crate::devtools::close_all();
+    crate::devtools_browser::shutdown().await;
     Ok(())
 }
 
@@ -683,6 +688,8 @@ mod tests {
             read_only: false,
             claude_auth_mode: None,
             permission_mode: Default::default(),
+            devtools_conversation_id: None,
+            devtools_cli: None,
         }
     }
     #[test]
